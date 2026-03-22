@@ -10,6 +10,9 @@ End-to-end encrypted file drops using **ML-KEM** in the browser (Rust → WebAss
 | [`design.md`](design.md) | Schema intent, storage layout, high-level API & flows |
 | [`frontend/README.md`](frontend/README.md) | Vite app, env vars, WASM build, deployment build notes |
 | [`supabase/README.md`](supabase/README.md) | SQL migrations to apply in Supabase |
+| [`ADOPTION.md`](ADOPTION.md) | **Production readiness:** stress testing & security audit expectations before adoption |
+
+This project is not a turnkey certified product. Before relying on it for sensitive or high-scale use, read [**ADOPTION.md**](ADOPTION.md): it explains why **load/soak testing** and **independent security (and crypto) review** are required, what scope they should cover, and how they differ.
 
 ## Architecture (short)
 
