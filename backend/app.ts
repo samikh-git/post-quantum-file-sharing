@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express, { Request, Response, Application, NextFunction } from 'express';
+import { corsOptions } from './corsOptions';
 import { requireAuth } from './authMiddleware';
 import {
   uploadRegisterIpLimiter,
@@ -20,7 +21,7 @@ const app: Application = express();
 if (process.env.TRUST_PROXY === '1') {
   app.set('trust proxy', 1);
 }
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors(corsOptions));
 app.use(express.json());
 
 type AsyncRoute = (req: Request, res: Response) => Promise<void>;

@@ -23,6 +23,23 @@ Loaded via `dotenv` in `.endpoints.config.ts` (imported from `sb_utils.ts`).
 | `PORT` | Listen port (set automatically on **Railway** / many PaaS). Locally defaults to **3001** in `server.ts` if unset. |
 | `TRUST_PROXY=1` | Sets Express `trust proxy` so **`req.ip`** is correct behind nginx / Railway / etc. **Needed for meaningful upload rate limits.** |
 
+### CORS (`corsOptions.ts`)
+
+The API no longer reflects **every** `Origin`. Allowed browser origins are built as follows:
+
+| Variable | Purpose |
+|----------|---------|
+| **`CORS_ORIGINS`** | Optional. Comma-separated list of allowed origins (e.g. `https://app.vercel.app,https://www.example.com`). **Trailing slashes are normalized.** If set, **only** these origins are allowed (plus the rules below for no `Origin`). |
+| **`FRONTEND_URL`** | If **`CORS_ORIGINS`** is unset, this origin is **added** to the allowlist (same value as for share links). |
+| **`NODE_ENV`** | When **not** `production`, common local dev origins are allowed (`http://localhost:5173`, `127.0.0.1`, ports 3000/4173, etc.). |
+| **`CORS_ALLOW_VERCEL_PREVIEWS=1`** | If set, requests whose `Origin` is **`*.vercel.app`** are allowed (optional for preview deployments). Slightly broader trust — use only if you want preview URLs to hit production API. |
+
+Requests **without** an `Origin` header (curl, server-to-server, some tools) are still allowed.
+
+**Production checklist:** Set **`FRONTEND_URL`** to your real SPA URL, or set **`CORS_ORIGINS`** explicitly if you have several frontends (e.g. `www` + apex). The SPA’s origin must **exactly** match one allowed URL (scheme + host + port).
+
+---
+
 ### Optional — JWT verification
 
 | Variable | Purpose |
@@ -50,7 +67,7 @@ npm install
 npm run dev   # or npm start
 ```
 
-Listens on **`process.env.PORT` or 3001**. Enable CORS for browser clients (`cors` with reflected `Origin`).
+Listens on **`process.env.PORT` or 3001**. CORS uses **`corsOptions.ts`** (allowlist; see [CORS](#cors-corsoptionsts) above).
 
 ---
 
@@ -237,6 +254,7 @@ The app treats **slug as unique per owner** (`user_id`, `slug`). If your databas
 | `sb_utils.ts` | Supabase DB + Storage + JWT verification. |
 | `uploadValidation.ts` | Slug, public key, upload body, `s3_key` rules. |
 | `rateLimits.ts` | Upload registration rate limits. |
+| `corsOptions.ts` | CORS allowlist for browser `Origin`s. |
 | `.endpoints.config.ts` | Env for Supabase URL + service role. |
 | `express.d.ts` | `Request.userId` typing. |
 | `integration/` | DB helpers for integration tests. |
