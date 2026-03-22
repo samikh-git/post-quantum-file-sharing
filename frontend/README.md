@@ -40,6 +40,14 @@ wasm-pack build --target web --out-dir ../../src/wasm/crypto-module/pkg
 
 Use the same `wasm-pack` target/out-dir your project expects; if `wasm-pack` recreates **`pkg/.gitignore`** with `*`, remove or adjust it before committing so CI keeps seeing the artifacts.
 
+## Vercel (SPA / share links)
+
+Share URLs use **client-side** routes such as **`/drop/:username/:slug`**. Static hosts have no file at that path, so you need a **fallback to `index.html`**.
+
+This repo includes **`vercel.json`** with a rewrite so Vercel serves **`index.html`** for non-asset paths (React Router then renders the upload page). Without it, opening a share link shows **404 NOT_FOUND** from Vercel.
+
+Set the Vercel project **Root Directory** to **`frontend`** (or ensure `vercel.json` from `frontend/` is used). Redeploy after adding the file.
+
 ## API routing
 
 - **Development:** Either set `VITE_API_URL=http://localhost:3001` or leave it unset and rely on the **Vite proxy** for API paths.
