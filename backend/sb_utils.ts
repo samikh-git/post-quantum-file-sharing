@@ -326,6 +326,33 @@ async function getUsernameByID(userId: string): Promise<string | null> {
     }
 }
 
+export type UpdateUsernameResult = 'updated' | 'taken' | 'no_profile';
+
+/**
+ * Sets `public.users.username` for the given auth user. Enforces global uniqueness (DB).
+ */
+async function updateUsernameForUser(
+    userId: string,
+    newUsername: string
+): Promise<UpdateUsernameResult> {
+    const { data, error } = await supabase
+        .from('users')
+        .update({ username: newUsername, updated_at: new Date().toISOString() })
+        .eq('id', userId)
+        .select('username')
+        .maybeSingle();
+    if (error) {
+        if (error.code === '23505') {
+            return 'taken';
+        }
+        throw error;
+    }
+    if (!data) {
+        return 'no_profile';
+    }
+    return 'updated';
+}
+
 /**
  * Resolves a login or share handle to a user id.
  *
@@ -619,6 +646,7 @@ export {
     getBoxForSharedUpload,
     addFile,
     getUsernameByID,
+    updateUsernameForUser,
     getUserIDByUsername,
     confirmFile,
     getBoxOwnerIdAndSlug,

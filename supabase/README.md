@@ -5,6 +5,7 @@ SQL migrations in this folder are applied to your Supabase **Postgres** project 
 | File | Purpose |
 |------|---------|
 | `migrations/20250321180000_sync_public_users_on_auth_user.sql` | Keeps **`public.users`** in sync with new **`auth.users`** rows so dashboard and `POST /boxes` have a profile row. |
+| `migrations/20250322120000_username_preferred_handle.sql` | Uses **`raw_user_meta_data.username`** as the public handle when valid and unused; otherwise keeps email-local + id suffix. Replaces **`handle_new_auth_user`**. |
 
 After applying, configure **Authentication → URL configuration** (Site URL, redirect URLs) for each deployed frontend origin. See the main **[`README.md`](../README.md)** and **[`backend/README.md`](../backend/README.md)**.
 

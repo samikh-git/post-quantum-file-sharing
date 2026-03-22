@@ -16,6 +16,11 @@ export function isValidBoxSlug(s: unknown): s is string {
   return typeof s === 'string' && s.length >= 3 && s.length <= 48 && SLUG_RE.test(s);
 }
 
+/** Public handle in `/drop/:username/:slug`; same character rules as box slugs. */
+export function isValidUsername(s: unknown): s is string {
+  return isValidBoxSlug(s);
+}
+
 export function isValidRecipientPublicKey(s: unknown): s is string {
   if (typeof s !== 'string' || s.length === 0 || s.length > MAX_BOX_PUBLIC_KEY_LENGTH) {
     return false;

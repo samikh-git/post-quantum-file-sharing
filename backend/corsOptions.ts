@@ -25,21 +25,23 @@ function parseExplicitOrigins(): Set<string> | null {
 
 function buildAllowedOrigins(): Set<string> {
   const explicit = parseExplicitOrigins();
-  if (explicit) {
-    return explicit;
-  }
+  const set = explicit ? new Set(explicit) : new Set<string>();
 
-  const set = new Set<string>();
-  const frontend = process.env.FRONTEND_URL?.trim();
-  if (frontend) {
-    set.add(stripTrailingSlash(frontend));
-  }
-
-  if (process.env.NODE_ENV !== 'production') {
-    for (const o of LOCAL_DEV_ORIGINS) {
-      set.add(o);
+  if (!explicit) {
+    const frontend = process.env.FRONTEND_URL?.trim();
+    if (frontend) {
+      set.add(stripTrailingSlash(frontend));
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      for (const o of LOCAL_DEV_ORIGINS) {
+        set.add(o);
+      }
     }
   }
+
+  // Vite default dev server — always allowed so local SPA can call prod/staging APIs when needed.
+  set.add('http://localhost:5173');
+  set.add('http://127.0.0.1:5173');
 
   return set;
 }
@@ -48,11 +50,12 @@ const allowedOrigins = buildAllowedOrigins();
 
 if (
   process.env.NODE_ENV === 'production' &&
-  allowedOrigins.size === 0 &&
+  !process.env.FRONTEND_URL?.trim() &&
+  !process.env.CORS_ORIGINS?.trim() &&
   process.env.CORS_ALLOW_VERCEL_PREVIEWS !== '1'
 ) {
   console.warn(
-    '[pqfs] CORS allowlist is empty — set FRONTEND_URL or CORS_ORIGINS on the API. Browser requests from your SPA will fail (often shown as "Failed to fetch").'
+    '[pqfs] Production API has no FRONTEND_URL / CORS_ORIGINS — only Vite dev (localhost:5173) is allowed. Set FRONTEND_URL or CORS_ORIGINS for your deployed SPA.'
   );
 }
 

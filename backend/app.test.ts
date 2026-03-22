@@ -8,6 +8,7 @@ vi.mock('./sb_utils', () => ({
   getBoxForSharedUpload: vi.fn(),
   addFile: vi.fn(),
   getUsernameByID: vi.fn(),
+  updateUsernameForUser: vi.fn(),
   getUserIDByUsername: vi.fn(),
   getUploadPresignedURL: vi.fn(),
   getDownloadSignedUrl: vi.fn(),
@@ -23,6 +24,88 @@ vi.mock('./sb_utils', () => ({
 
 import * as sbUtils from './sb_utils';
 import app from './app';
+
+describe('PATCH /me/username', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.verifyAccessToken).mockReset();
+    vi.mocked(sbUtils.getUsernameByID).mockReset();
+    vi.mocked(sbUtils.updateUsernameForUser).mockReset();
+  });
+
+  it('returns 401 without Authorization', async () => {
+    const res = await request(app).patch('/me/username').send({ username: 'new-handle' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 for invalid username', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+
+    const res = await request(app)
+      .patch('/me/username')
+      .set('Authorization', 'Bearer t')
+      .send({ username: 'ab' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'invalid_username' });
+  });
+
+  it('returns 409 profile_missing when no public.users row', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue(null);
+
+    const res = await request(app)
+      .patch('/me/username')
+      .set('Authorization', 'Bearer t')
+      .send({ username: 'valid-handle' });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'profile_missing' });
+    expect(sbUtils.updateUsernameForUser).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 without update when username unchanged', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue('alice');
+
+    const res = await request(app)
+      .patch('/me/username')
+      .set('Authorization', 'Bearer t')
+      .send({ username: 'alice' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ username: 'alice' });
+    expect(sbUtils.updateUsernameForUser).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 username_taken when update conflicts', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue('alice');
+    vi.mocked(sbUtils.updateUsernameForUser).mockResolvedValue('taken');
+
+    const res = await request(app)
+      .patch('/me/username')
+      .set('Authorization', 'Bearer t')
+      .send({ username: 'bob' });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'username_taken' });
+  });
+
+  it('returns 200 when username updated', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue('alice');
+    vi.mocked(sbUtils.updateUsernameForUser).mockResolvedValue('updated');
+
+    const res = await request(app)
+      .patch('/me/username')
+      .set('Authorization', 'Bearer t')
+      .send({ username: 'new-handle' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ username: 'new-handle' });
+    expect(sbUtils.updateUsernameForUser).toHaveBeenCalledWith('uid-1', 'new-handle');
+  });
+});
 
 describe('GET /me/boxes', () => {
   beforeEach(() => {

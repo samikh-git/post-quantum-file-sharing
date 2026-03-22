@@ -15,6 +15,7 @@ import {
   isValidEncryptedName,
   isValidKemField,
   isValidRecipientPublicKey,
+  isValidUsername,
 } from './uploadValidation';
 
 const app: Application = express();
@@ -31,6 +32,38 @@ function asyncHandler(handler: AsyncRoute) {
     void handler(req, res).catch(next);
   };
 }
+
+app.patch(
+  '/me/username',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { username } = req.body as { username?: unknown };
+    if (!isValidUsername(username)) {
+      res.status(400).json({ error: 'invalid_username' });
+      return;
+    }
+    const userId = req.userId!;
+    const existing = await sbUtils.getUsernameByID(userId);
+    if (existing === null) {
+      res.status(409).json({ error: 'profile_missing' });
+      return;
+    }
+    if (existing === username) {
+      res.json({ username });
+      return;
+    }
+    const result = await sbUtils.updateUsernameForUser(userId, username);
+    if (result === 'no_profile') {
+      res.status(409).json({ error: 'profile_missing' });
+      return;
+    }
+    if (result === 'taken') {
+      res.status(409).json({ error: 'username_taken' });
+      return;
+    }
+    res.json({ username });
+  })
+);
 
 app.get(
   '/me/boxes',

@@ -177,6 +177,18 @@
   text-transform: lowercase;
 }
 
+.dash-auth-handle-input {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  box-sizing: border-box;
+}
+
 .dash-auth-form {
   display: flex;
   flex-wrap: wrap;

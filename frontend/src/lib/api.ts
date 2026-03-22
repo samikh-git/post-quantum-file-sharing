@@ -39,8 +39,15 @@ function url(path: string): string {
   return base ? `${base}${path}` : path
 }
 
-const NETWORK_ERROR_HINT =
-  ' Check: VITE_API_URL points to your live API (https); Railway FRONTEND_URL matches this site origin exactly (CORS); no http/https mix.'
+const NETWORK_ERROR_HINT_PROD =
+  ' Check: VITE_API_URL points to your live API (https); API FRONTEND_URL / CORS allowlist matches this site origin; no http/https mix.'
+
+const NETWORK_ERROR_HINT_DEV =
+  ' Local dev: start the backend (default port 3001). With VITE_API_URL unset, Vite proxies /me and /boxes to http://localhost:3001. If .env sets VITE_API_URL, the browser calls that origin instead — ensure the API is up and allows this page’s origin (CORS), or remove VITE_API_URL to use the proxy.'
+
+function networkErrorHint(): string {
+  return import.meta.env.DEV ? NETWORK_ERROR_HINT_DEV : NETWORK_ERROR_HINT_PROD
+}
 
 /** `fetch` to our API — adds context when the browser reports a network/CORS failure. */
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
@@ -53,7 +60,7 @@ async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
       /network/i.test(msg) ||
       msg.includes('Load failed')
     ) {
-      throw new Error(`${msg}.${NETWORK_ERROR_HINT}`)
+      throw new Error(`${msg}.${networkErrorHint()}`)
     }
     throw e
   }
@@ -111,7 +118,7 @@ export async function fetchMeBoxes(accessToken: string): Promise<MeBoxesResponse
   const hit = meBoxesCache.get(accessToken)
   if (hit && hit.expires > now) return hit.value
 
-  const res = await fetch(url('/me/boxes'), {
+  const res = await apiFetch(url('/me/boxes'), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/json',
@@ -125,6 +132,20 @@ export async function fetchMeBoxes(accessToken: string): Promise<MeBoxesResponse
   }
   meBoxesCache.set(accessToken, { value, expires: now + ME_BOXES_TTL_MS })
   return value
+}
+
+export async function updateMyUsername(accessToken: string, username: string): Promise<void> {
+  const res = await apiFetch(url('/me/username'), {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ username }),
+  })
+  if (!res.ok) throw new Error(await parseError(res))
+  invalidateDashboardApiCache()
 }
 
 export async function fetchMeBoxFiles(
@@ -163,7 +184,7 @@ export async function checkBoxSlugAvailability(
   const hit = slugCheckCache.get(key)
   if (hit && hit.expires > now) return hit.value
 
-  const res = await fetch(
+  const res = await apiFetch(
     url(
       `/boxes/check/${encodeURIComponent(username)}/${encodeURIComponent(slug)}`
     ),

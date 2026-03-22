@@ -29,14 +29,14 @@ The API no longer reflects **every** `Origin`. Allowed browser origins are built
 
 | Variable | Purpose |
 |----------|---------|
-| **`CORS_ORIGINS`** | Optional. Comma-separated list of allowed origins (e.g. `https://app.vercel.app,https://www.example.com`). **Trailing slashes are normalized.** If set, **only** these origins are allowed (plus the rules below for no `Origin`). |
-| **`FRONTEND_URL`** | If **`CORS_ORIGINS`** is unset, this origin is **added** to the allowlist (same value as for share links). |
-| **`NODE_ENV`** | When **not** `production`, common local dev origins are allowed (`http://localhost:5173`, `127.0.0.1`, ports 3000/4173, etc.). |
+| **`CORS_ORIGINS`** | Optional. Comma-separated list of allowed origins (e.g. `https://app.vercel.app,https://www.example.com`). **Trailing slashes are normalized.** If set, these origins are allowed **plus** `http://localhost:5173` and `http://127.0.0.1:5173` (Vite dev). |
+| **`FRONTEND_URL`** | If **`CORS_ORIGINS`** is unset, this origin is **added** to the allowlist (same value as for share links). **`http://localhost:5173`** and **`http://127.0.0.1:5173`** are always added as well. |
+| **`NODE_ENV`** | When **not** `production`, additional local origins are allowed (ports 3000, 4173, etc.). |
 | **`CORS_ALLOW_VERCEL_PREVIEWS=1`** | If set, requests whose `Origin` is **`*.vercel.app`** are allowed (optional for preview deployments). Slightly broader trust — use only if you want preview URLs to hit production API. |
 
 Requests **without** an `Origin` header (curl, server-to-server, some tools) are still allowed.
 
-**Production checklist:** Set **`FRONTEND_URL`** to your real SPA URL, or set **`CORS_ORIGINS`** explicitly if you have several frontends (e.g. `www` + apex). The SPA’s origin must **exactly** match one allowed URL (scheme + host + port).
+**Production checklist:** Set **`FRONTEND_URL`** to your real SPA URL, or set **`CORS_ORIGINS`** explicitly if you have several frontends (e.g. `www` + apex). The deployed SPA’s origin must **exactly** match one allowed URL (scheme + host + port). Local Vite (`http://localhost:5173`) is always allowed.
 
 ---
 
@@ -101,6 +101,20 @@ Listens on **`process.env.PORT` or 3001**. CORS uses **`corsOptions.ts`** (allow
 ---
 
 ## Endpoints
+
+### `PATCH /me/username` (authenticated)
+
+Sets the signed-in user’s **`public.users.username`** (same validation as box slugs: 3–48 chars, `^[a-z0-9]+(-[a-z0-9]+)*$`). Existing share URLs that used the old handle will no longer resolve.
+
+| | |
+|---|---|
+| **Headers** | `Authorization: Bearer` |
+| **Body** | `{ "username": string }` |
+| **200** | `{ "username": string }` |
+| **400** | `invalid_username` |
+| **409** | `profile_missing` (no `public.users` row) or `username_taken` |
+
+---
 
 ### `GET /me/boxes` (authenticated)
 

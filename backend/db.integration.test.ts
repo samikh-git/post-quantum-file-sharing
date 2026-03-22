@@ -70,8 +70,7 @@ describe.skipIf(!admin)('Supabase integration (real DB)', () => {
     expect(await sbUtils.getUserIDByUsername(u.username)).toBe(u.userId);
 
     await sbUtils.createBox(slug, boxPk, u.userId);
-    const userId = await sbUtils.getUserIDByUsername(u.username);
-    expect(await sbUtils.getKeyBySlug(userId, slug)).toBe(boxPk);
+    expect(await sbUtils.getKeyBySlug(u.userId, slug)).toBe(boxPk);
 
     await sbUtils.deleteBox(u.userId, slug);
   });
