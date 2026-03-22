@@ -667,58 +667,62 @@ function App() {
                 </button>
               </div>
             ) : (
-              <div className="dash-auth-methods">
-                <button
-                  type="button"
-                  className="dash-auth-google"
-                  disabled={authBusy}
-                  onClick={() => void handleGoogleSignIn()}
-                >
-                  <IconGoogle />
-                  Continue with Google
-                </button>
-                <p className="dash-auth-divider">
-                  <span>or email</span>
-                </p>
-                <input
-                  className="dash-auth-handle-input"
-                  type="text"
-                  placeholder="Public handle (for sign up)"
-                  value={signUpUsername}
-                  onChange={(e) => setSignUpUsername(e.target.value)}
-                  autoComplete="username"
-                  spellCheck={false}
-                />
-                <form className="dash-auth-form" onSubmit={(e) => void handleSignIn(e)}>
-                  <input
-                    type="email"
-                    placeholder="Email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    autoComplete="email"
-                    required
-                  />
-                  <input
-                    type="password"
-                    placeholder="Password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
-                  <button type="submit" disabled={authBusy}>
-                    Sign in
-                  </button>
+              <div className="dash-auth-signin-panel">
+                <div className="dash-auth-methods">
                   <button
                     type="button"
-                    className="dash-btn-secondary"
+                    className="dash-auth-google"
                     disabled={authBusy}
-                    onClick={() => void handleSignUp()}
+                    onClick={() => void handleGoogleSignIn()}
                   >
-                    Sign up
+                    <IconGoogle />
+                    Continue with Google
                   </button>
-                </form>
-                {authMessage && <p className="dash-auth-msg">{authMessage}</p>}
+                  <p className="dash-auth-divider">
+                    <span>or email</span>
+                  </p>
+                  <input
+                    className="dash-auth-handle-input"
+                    type="text"
+                    placeholder="Public handle (for sign up)"
+                    value={signUpUsername}
+                    onChange={(e) => setSignUpUsername(e.target.value)}
+                    autoComplete="username"
+                    spellCheck={false}
+                  />
+                  <form className="dash-auth-form" onSubmit={(e) => void handleSignIn(e)}>
+                    <input
+                      type="email"
+                      placeholder="Email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="email"
+                      required
+                    />
+                    <input
+                      type="password"
+                      placeholder="Password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                      required
+                    />
+                    <div className="dash-auth-form-actions">
+                      <button type="submit" disabled={authBusy}>
+                        Sign in
+                      </button>
+                      <button
+                        type="button"
+                        className="dash-btn-secondary"
+                        disabled={authBusy}
+                        onClick={() => void handleSignUp()}
+                      >
+                        Sign up
+                      </button>
+                    </div>
+                  </form>
+                  {authMessage && <p className="dash-auth-msg">{authMessage}</p>}
+                </div>
               </div>
             )}
           </div>

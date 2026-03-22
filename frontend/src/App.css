@@ -108,7 +108,6 @@
 
 .dash-auth {
   margin-top: 20px;
-  max-width: 420px;
 }
 
 .dash-auth-row {
@@ -122,12 +121,27 @@
   font-size: 0.92rem;
 }
 
+.dash-auth-signin-panel {
+  margin-top: 8px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 36px 28px 44px;
+  max-width: min(440px, 100%);
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--social-bg);
+  box-shadow: var(--shadow);
+}
+
 .dash-auth-methods {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: stretch;
+  gap: 18px;
   width: 100%;
-  max-width: 420px;
+  max-width: 380px;
+  margin: 0 auto;
 }
 
 .dash-auth-google {
@@ -136,8 +150,8 @@
   justify-content: center;
   gap: 10px;
   width: 100%;
-  padding: 10px 16px;
-  border-radius: 8px;
+  padding: 12px 18px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-h);
@@ -191,9 +205,8 @@
 
 .dash-auth-handle-input {
   width: 100%;
-  max-width: 420px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 11px 14px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-h);
@@ -203,29 +216,39 @@
 
 .dash-auth-form {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+  flex-direction: column;
+  gap: 14px;
+  align-items: stretch;
+  width: 100%;
 }
 
 .dash-auth-form input {
-  flex: 1 1 140px;
-  min-width: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-h);
   font: inherit;
 }
 
-.dash-auth-form button {
+.dash-auth-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.dash-auth-form-actions button {
+  flex: 1 1 calc(50% - 5px);
+  min-width: min(140px, 100%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
   border: none;
   font: inherit;
   font-weight: 600;
@@ -239,7 +262,7 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  background: var(--social-bg) !important;
+  background: var(--bg) !important;
   color: var(--text-h) !important;
   border: 1px solid var(--border) !important;
 }
@@ -261,9 +284,10 @@
 
 .dash-auth-msg {
   width: 100%;
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   font-size: 0.88rem;
   color: var(--text-h);
+  text-align: center;
 }
 
 .dash-api-err {
