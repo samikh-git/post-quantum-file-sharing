@@ -25,9 +25,38 @@ function apiOrigin(): string {
   return typeof raw === 'string' ? raw.replace(/\/$/, '') : ''
 }
 
+/**
+ * Cross-origin API calls in production require `VITE_API_URL` at **build** time.
+ * If it is missing, `fetch('/me/boxes')` hits the static host (Vercel) and fails or returns HTML.
+ */
 function url(path: string): string {
   const base = apiOrigin()
+  if (import.meta.env.PROD && !base) {
+    throw new Error(
+      'VITE_API_URL was not set when this app was built. In Vercel: Settings → Environment Variables → add VITE_API_URL = your API base (e.g. https://xxx.up.railway.app), then redeploy.'
+    )
+  }
   return base ? `${base}${path}` : path
+}
+
+const NETWORK_ERROR_HINT =
+  ' Check: VITE_API_URL points to your live API (https); Railway FRONTEND_URL matches this site origin exactly (CORS); no http/https mix.'
+
+/** `fetch` to our API — adds context when the browser reports a network/CORS failure. */
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (
+      msg === 'Failed to fetch' ||
+      /network/i.test(msg) ||
+      msg.includes('Load failed')
+    ) {
+      throw new Error(`${msg}.${NETWORK_ERROR_HINT}`)
+    }
+    throw e
+  }
 }
 
 async function parseError(res: Response): Promise<string> {
@@ -107,7 +136,7 @@ export async function fetchMeBoxFiles(
   const hit = boxFilesCache.get(key)
   if (hit && hit.expires > now) return hit.value
 
-  const res = await fetch(url(`/me/boxes/${encodeURIComponent(boxId)}/files`), {
+  const res = await apiFetch(url(`/me/boxes/${encodeURIComponent(boxId)}/files`), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/json',
@@ -157,7 +186,7 @@ export async function createBox(
   accessToken: string,
   body: CreateBoxBody
 ): Promise<{ shareURL: string }> {
-  const res = await fetch(url('/boxes'), {
+  const res = await apiFetch(url('/boxes'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -199,7 +228,7 @@ export async function registerFileUpload(
   boxId: string,
   payload: RegisterUploadPayload
 ): Promise<{ uploadURL: string; fileId: string }> {
-  const res = await fetch(url(`/boxes/${encodeURIComponent(boxId)}/uploads`), {
+  const res = await apiFetch(url(`/boxes/${encodeURIComponent(boxId)}/uploads`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -258,7 +287,7 @@ export async function confirmUploadedFile(
   accessToken: string,
   fileId: string
 ): Promise<void> {
-  const res = await fetch(url(`/files/${encodeURIComponent(fileId)}/confirm`), {
+  const res = await apiFetch(url(`/files/${encodeURIComponent(fileId)}/confirm`), {
     method: 'PATCH',
     headers: {
       Accept: 'application/json',
@@ -281,7 +310,7 @@ export async function fetchFileDownloadPrep(
   accessToken: string,
   fileId: string
 ): Promise<FileDownloadPrep> {
-  const res = await fetch(url(`/me/files/${encodeURIComponent(fileId)}/download`), {
+  const res = await apiFetch(url(`/me/files/${encodeURIComponent(fileId)}/download`), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: 'application/json',

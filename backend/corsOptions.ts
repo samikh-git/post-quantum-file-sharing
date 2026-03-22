@@ -46,6 +46,16 @@ function buildAllowedOrigins(): Set<string> {
 
 const allowedOrigins = buildAllowedOrigins();
 
+if (
+  process.env.NODE_ENV === 'production' &&
+  allowedOrigins.size === 0 &&
+  process.env.CORS_ALLOW_VERCEL_PREVIEWS !== '1'
+) {
+  console.warn(
+    '[pqfs] CORS allowlist is empty — set FRONTEND_URL or CORS_ORIGINS on the API. Browser requests from your SPA will fail (often shown as "Failed to fetch").'
+  );
+}
+
 function allowVercelPreview(origin: string): boolean {
   if (process.env.CORS_ALLOW_VERCEL_PREVIEWS !== '1') {
     return false;
