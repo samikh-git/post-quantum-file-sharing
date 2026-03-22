@@ -13,6 +13,8 @@ vi.mock('./sb_utils', () => ({
   getDownloadSignedUrl: vi.fn(),
   getFileDownloadMetaIfOwned: vi.fn(),
   confirmFile: vi.fn(),
+  getBoxOwnerIdAndSlug: vi.fn(),
+  confirmFileIfOwned: vi.fn(),
   verifyAccessToken: vi.fn(),
   listBoxesForUser: vi.fn(),
   getBoxOwnerUserId: vi.fn(),
@@ -228,25 +230,25 @@ describe('GET /me/files/:fileId/download', () => {
   });
 });
 
-describe('GET /boxes/check/:slug', () => {
+describe('GET /boxes/check/:username/:slug', () => {
   beforeEach(() => {
     vi.mocked(sbUtils.chekSlugAvailability).mockReset();
   });
 
-  it('returns isAvailable true when slug is not taken', async () => {
+  it('returns isAvailable true when slug is not taken for that user', async () => {
     vi.mocked(sbUtils.chekSlugAvailability).mockResolvedValue(false);
 
-    const res = await request(app).get('/boxes/check/free-slug');
+    const res = await request(app).get('/boxes/check/alice/free-slug');
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ isAvailable: true });
-    expect(sbUtils.chekSlugAvailability).toHaveBeenCalledWith('free-slug');
+    expect(sbUtils.chekSlugAvailability).toHaveBeenCalledWith('alice', 'free-slug');
   });
 
-  it('returns isAvailable false when slug is taken', async () => {
+  it('returns isAvailable false when slug is taken for that user', async () => {
     vi.mocked(sbUtils.chekSlugAvailability).mockResolvedValue(true);
 
-    const res = await request(app).get('/boxes/check/taken-slug');
+    const res = await request(app).get('/boxes/check/alice/taken-slug');
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ isAvailable: false });
@@ -258,17 +260,28 @@ describe('POST /boxes', () => {
     process.env.FRONTEND_URL = 'https://frontend.test';
     vi.mocked(sbUtils.createBox).mockReset();
     vi.mocked(sbUtils.getUsernameByID).mockReset();
+    vi.mocked(sbUtils.verifyAccessToken).mockReset();
+  });
+
+  it('returns 401 without Authorization', async () => {
+    const res = await request(app)
+      .post('/boxes')
+      .send({ slug: 'my-box', publicKey: 'pk-base64' });
+
+    expect(res.status).toBe(401);
+    expect(sbUtils.createBox).not.toHaveBeenCalled();
   });
 
   it('creates a box and returns shareURL with username and slug', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('user-uuid-1');
     vi.mocked(sbUtils.getUsernameByID).mockResolvedValue('alice');
 
     const res = await request(app)
       .post('/boxes')
+      .set('Authorization', 'Bearer valid.jwt')
       .send({
         slug: 'my-box',
         publicKey: 'pk-base64',
-        userId: 'user-uuid-1',
       });
 
     expect(res.status).toBe(200);
@@ -284,18 +297,35 @@ describe('POST /boxes', () => {
   });
 
   it('returns 409 when user has no public.users profile', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('user-uuid-1');
     vi.mocked(sbUtils.getUsernameByID).mockResolvedValue(null);
 
     const res = await request(app)
       .post('/boxes')
+      .set('Authorization', 'Bearer valid.jwt')
       .send({
         slug: 'my-box',
         publicKey: 'pk-base64',
-        userId: 'user-uuid-1',
       });
 
     expect(res.status).toBe(409);
     expect(res.body).toEqual({ error: 'profile_missing' });
+    expect(sbUtils.createBox).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when slug is invalid', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('user-uuid-1');
+
+    const res = await request(app)
+      .post('/boxes')
+      .set('Authorization', 'Bearer valid.jwt')
+      .send({
+        slug: 'ab',
+        publicKey: 'pk-base64',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'invalid_slug' });
     expect(sbUtils.createBox).not.toHaveBeenCalled();
   });
 });
@@ -347,12 +377,19 @@ describe('GET /boxes/:username/:slug', () => {
 });
 
 describe('POST /boxes/:id/uploads', () => {
+  const ownerId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const slug = 'my-slug';
+  const leaf = '550e8400-e29b-41d4-a716-446655440000_obj.bin';
+  const validS3Key = `${ownerId}/${slug}/${leaf}`;
+
   beforeEach(() => {
     vi.mocked(sbUtils.addFile).mockReset();
     vi.mocked(sbUtils.getUploadPresignedURL).mockReset();
+    vi.mocked(sbUtils.getBoxOwnerIdAndSlug).mockReset();
   });
 
   it('registers file metadata and returns a string upload URL (not a Promise)', async () => {
+    vi.mocked(sbUtils.getBoxOwnerIdAndSlug).mockResolvedValue({ ownerId, slug });
     vi.mocked(sbUtils.addFile).mockResolvedValue('new-file-id');
     vi.mocked(sbUtils.getUploadPresignedURL).mockResolvedValue(
       'https://storage.test/upload?sig=1'
@@ -362,7 +399,7 @@ describe('POST /boxes/:id/uploads', () => {
       encryptedName: 'enc-name',
       contentType: 'application/octet-stream',
       byteSizeBytes: 1024,
-      s3Key: 'user/box/obj.bin',
+      s3Key: validS3Key,
       nonce: 'n',
       kemCiphertext: 'kem',
     };
@@ -386,21 +423,82 @@ describe('POST /boxes/:id/uploads', () => {
     );
     expect(sbUtils.getUploadPresignedURL).toHaveBeenCalledWith(body.s3Key);
   });
+
+  it('returns 404 when the box id does not exist', async () => {
+    vi.mocked(sbUtils.getBoxOwnerIdAndSlug).mockResolvedValue(null);
+
+    const res = await request(app)
+      .post('/boxes/missing-box/uploads')
+      .send({
+        encryptedName: 'enc-name',
+        contentType: 'application/octet-stream',
+        byteSizeBytes: 1024,
+        s3Key: validS3Key,
+        nonce: 'n',
+        kemCiphertext: 'kem',
+      });
+
+    expect(res.status).toBe(404);
+    expect(sbUtils.addFile).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when s3Key does not match owner/slug/leaf rules', async () => {
+    vi.mocked(sbUtils.getBoxOwnerIdAndSlug).mockResolvedValue({ ownerId, slug });
+
+    const res = await request(app)
+      .post('/boxes/box-uuid-9/uploads')
+      .send({
+        encryptedName: 'enc-name',
+        contentType: 'application/octet-stream',
+        byteSizeBytes: 1024,
+        s3Key: 'wrong/path/550e8400-e29b-41d4-a716-446655440000_x.bin',
+        nonce: 'n',
+        kemCiphertext: 'kem',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'invalid_s3_key' });
+    expect(sbUtils.addFile).not.toHaveBeenCalled();
+  });
 });
 
 describe('PATCH /files/:id/confirm', () => {
   beforeEach(() => {
-    vi.mocked(sbUtils.confirmFile).mockReset();
+    vi.mocked(sbUtils.confirmFileIfOwned).mockReset();
+    vi.mocked(sbUtils.verifyAccessToken).mockReset();
   });
 
-  it('confirms the file and returns success', async () => {
-    vi.mocked(sbUtils.confirmFile).mockResolvedValue(undefined);
-
+  it('returns 401 without Authorization', async () => {
     const res = await request(app).patch('/files/file-uuid-7/confirm');
+
+    expect(res.status).toBe(401);
+    expect(sbUtils.confirmFileIfOwned).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the file is missing or not owned by the caller', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('me');
+    vi.mocked(sbUtils.confirmFileIfOwned).mockResolvedValue(false);
+
+    const res = await request(app)
+      .patch('/files/file-uuid-7/confirm')
+      .set('Authorization', 'Bearer t');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'not_found' });
+    expect(sbUtils.confirmFileIfOwned).toHaveBeenCalledWith('file-uuid-7', 'me');
+  });
+
+  it('confirms the file and returns success when owned', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('me');
+    vi.mocked(sbUtils.confirmFileIfOwned).mockResolvedValue(true);
+
+    const res = await request(app)
+      .patch('/files/file-uuid-7/confirm')
+      .set('Authorization', 'Bearer t');
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ success: true });
-    expect(sbUtils.confirmFile).toHaveBeenCalledWith('file-uuid-7');
+    expect(sbUtils.confirmFileIfOwned).toHaveBeenCalledWith('file-uuid-7', 'me');
   });
 });
 
@@ -410,7 +508,7 @@ describe('error handling', () => {
       new Error('db down')
     );
 
-    const res = await request(app).get('/boxes/check/x');
+    const res = await request(app).get('/boxes/check/u/x');
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'internal_server_error' });

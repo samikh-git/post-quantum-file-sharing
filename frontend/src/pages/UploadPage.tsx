@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import {
-  confirmUploadedFile,
   fetchDropBoxInfo,
   putCiphertextToSignedUrl,
   registerFileUpload,
@@ -21,7 +20,6 @@ type Step =
   | 'encrypting'
   | 'registering'
   | 'uploading'
-  | 'confirming'
   | 'done'
   | 'error'
 
@@ -100,7 +98,7 @@ export default function UploadPage() {
         const objectLeaf = `${crypto.randomUUID()}_${safeStorageLeaf(file.name)}`
         const s3Key = `${box.ownerId}/${slug}/${objectLeaf}`
 
-        const { uploadURL, fileId } = await registerFileUpload(box.boxId, {
+        const { uploadURL } = await registerFileUpload(box.boxId, {
           encryptedName,
           contentType: file.type || 'application/octet-stream',
           byteSizeBytes: bodyEnc.encrypted.byteLength,
@@ -116,11 +114,10 @@ export default function UploadPage() {
           file.type || 'application/octet-stream'
         )
 
-        setStep('confirming')
-        await confirmUploadedFile(fileId)
-
         setStep('done')
-        setMessage('Upload complete. The box owner can see this file in their dashboard.')
+        setMessage(
+          'Ciphertext uploaded. The box owner must open their dashboard and click Finalize on this file before it can be downloaded.'
+        )
       } catch (e: unknown) {
         setStep('ready')
         setLastError(e instanceof Error ? e.message : String(e))
@@ -138,8 +135,7 @@ export default function UploadPage() {
   const busy =
     step === 'encrypting' ||
     step === 'registering' ||
-    step === 'uploading' ||
-    step === 'confirming'
+    step === 'uploading'
 
   return (
     <div className="upload-page">
@@ -210,8 +206,6 @@ function stepLabel(step: Step): string {
       return 'Requesting upload slot'
     case 'uploading':
       return 'Uploading ciphertext to storage'
-    case 'confirming':
-      return 'Confirming with server'
     default:
       return 'Working'
   }

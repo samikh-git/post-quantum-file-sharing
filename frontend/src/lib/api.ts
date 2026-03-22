@@ -120,18 +120,30 @@ export async function fetchMeBoxFiles(
   return files
 }
 
-export async function checkBoxSlugAvailability(slug: string): Promise<boolean> {
+function slugCheckCacheKey(username: string, slug: string): string {
+  return `${username}:${slug}`
+}
+
+/** Slug is free for this `public.users.username` (pair matches share URL `/drop/:username/:slug`). */
+export async function checkBoxSlugAvailability(
+  username: string,
+  slug: string
+): Promise<boolean> {
   const now = Date.now()
-  const hit = slugCheckCache.get(slug)
+  const key = slugCheckCacheKey(username, slug)
+  const hit = slugCheckCache.get(key)
   if (hit && hit.expires > now) return hit.value
 
-  const res = await fetch(url(`/boxes/check/${encodeURIComponent(slug)}`), {
-    headers: { Accept: 'application/json' },
-  })
+  const res = await fetch(
+    url(
+      `/boxes/check/${encodeURIComponent(username)}/${encodeURIComponent(slug)}`
+    ),
+    { headers: { Accept: 'application/json' } }
+  )
   if (!res.ok) throw new Error(await parseError(res))
   const body = (await res.json()) as { isAvailable?: boolean }
   const isAvailable = body.isAvailable === true
-  slugCheckCache.set(slug, { value: isAvailable, expires: now + SLUG_CHECK_TTL_MS })
+  slugCheckCache.set(key, { value: isAvailable, expires: now + SLUG_CHECK_TTL_MS })
   pruneSlugCache()
   return isAvailable
 }
@@ -139,15 +151,18 @@ export async function checkBoxSlugAvailability(slug: string): Promise<boolean> {
 export type CreateBoxBody = {
   slug: string
   publicKey: string
-  userId: string
 }
 
-export async function createBox(body: CreateBoxBody): Promise<{ shareURL: string }> {
+export async function createBox(
+  accessToken: string,
+  body: CreateBoxBody
+): Promise<{ shareURL: string }> {
   const res = await fetch(url('/boxes'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(body),
   })
@@ -238,10 +253,17 @@ export async function putCiphertextToSignedUrl(
   }
 }
 
-export async function confirmUploadedFile(fileId: string): Promise<void> {
+/** Box owner only: marks upload ACTIVE after ciphertext is in storage. */
+export async function confirmUploadedFile(
+  accessToken: string,
+  fileId: string
+): Promise<void> {
   const res = await fetch(url(`/files/${encodeURIComponent(fileId)}/confirm`), {
     method: 'PATCH',
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
   if (!res.ok) throw new Error(await parseError(res))
 }

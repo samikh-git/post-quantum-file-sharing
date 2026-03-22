@@ -125,19 +125,30 @@ async function getFileDownloadMetaIfOwned(
 }
 
 /**
- * Whether a box row already exists for the given slug.
+ * Whether a box row already exists for the given owner username and slug
+ * (same scope as share URLs `/drop/:username/:slug`).
  *
- * @param slug - Box slug to look up in `boxes`.
- * @returns `true` if at least one row matches (slug is taken), otherwise `false`.
+ * @returns `true` if that user already has a box with this slug.
  * @throws On Supabase query errors.
  */
-async function chekSlugAvailability(slug: string): Promise<boolean> {
+async function chekSlugAvailability(
+    username: string,
+    slug: string
+): Promise<boolean> {
     try {
-        const { data, error } = await supabase.from('boxes').select('*').eq('slug', slug);
+        const ownerId = await getUserIDByUsername(username);
+        if (!ownerId) {
+            return false;
+        }
+        const { data, error } = await supabase
+            .from('boxes')
+            .select('id')
+            .eq('user_id', ownerId)
+            .eq('slug', slug);
         if (error) {
             throw error;
         }
-        return data.length > 0;
+        return (data?.length ?? 0) > 0;
     } catch (error) {
         console.error(error);
         throw error;
@@ -175,16 +186,16 @@ async function createBox(
 }
 
 /**
- * Deletes the box row whose `slug` matches.
+ * Deletes a box for a specific owner and slug (scoped like share URLs).
  *
- * @param slug - Slug of the box to remove.
  * @throws On delete failure or Supabase errors.
  */
-async function deleteBox(slug: string): Promise<void> {
+async function deleteBox(userId: string, slug: string): Promise<void> {
     try {
         const { error } = await supabase
             .from('boxes')
             .delete()
+            .eq('user_id', userId)
             .eq('slug', slug);
         if (error) {
             throw error;
@@ -360,6 +371,55 @@ async function confirmFile(id: string): Promise<void> {
         console.error(error);
         throw error;
     }
+}
+
+export type BoxUploadPathContext = { ownerId: string; slug: string };
+
+/** Box owner id and slug for validating anonymous upload `s3_key` paths. */
+async function getBoxOwnerIdAndSlug(
+    boxId: string
+): Promise<BoxUploadPathContext | null> {
+    try {
+        const { data, error } = await supabase
+            .from('boxes')
+            .select('user_id, slug')
+            .eq('id', boxId)
+            .maybeSingle();
+        if (error) {
+            throw error;
+        }
+        if (!data) {
+            return null;
+        }
+        return {
+            ownerId: data.user_id as string,
+            slug: data.slug as string,
+        };
+    } catch (error) {
+        console.error(error);
+        throw error;
+    }
+}
+
+/** Sets file ACTIVE only when the auth user owns the box that contains the file. */
+async function confirmFileIfOwned(fileId: string, userId: string): Promise<boolean> {
+    const { data, error } = await supabase
+        .from('files')
+        .select('box_id')
+        .eq('id', fileId)
+        .maybeSingle();
+    if (error) {
+        throw error;
+    }
+    if (!data?.box_id) {
+        return false;
+    }
+    const owner = await getBoxOwnerUserId(data.box_id as string);
+    if (owner !== userId) {
+        return false;
+    }
+    await confirmFile(fileId);
+    return true;
 }
 
 export type DashboardBoxRow = {
@@ -561,6 +621,8 @@ export {
     getUsernameByID,
     getUserIDByUsername,
     confirmFile,
+    getBoxOwnerIdAndSlug,
+    confirmFileIfOwned,
     verifyAccessToken,
     listBoxesForUser,
     getBoxOwnerUserId,

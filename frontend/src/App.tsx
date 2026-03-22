@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js'
 import './App.css'
 import {
   checkBoxSlugAvailability,
+  confirmUploadedFile,
   createBox,
   fetchFileDownloadPrep,
   fetchMeBoxFiles,
@@ -157,7 +158,9 @@ function App() {
   const [filesLoading, setFilesLoading] = useState(false)
   const [decryptedFileNames, setDecryptedFileNames] = useState<Record<string, string>>({})
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null)
+  const [confirmingFileId, setConfirmingFileId] = useState<string | null>(null)
   const [fileDownloadError, setFileDownloadError] = useState<string | null>(null)
+  const [fileConfirmError, setFileConfirmError] = useState<string | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
 
   const [keysStatus, setKeysStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
@@ -274,11 +277,15 @@ function App() {
       setSlugCheck('invalid')
       return undefined
     }
+    if (!dashboardUsername) {
+      setSlugCheck('idle')
+      return undefined
+    }
 
     let cancelled = false
     setSlugCheck('checking')
     const t = window.setTimeout(() => {
-      void checkBoxSlugAvailability(normalized)
+      void checkBoxSlugAvailability(dashboardUsername, normalized)
         .then((available) => {
           if (cancelled) return
           setSlugCheck(available ? 'available' : 'taken')
@@ -292,7 +299,7 @@ function App() {
       cancelled = true
       window.clearTimeout(t)
     }
-  }, [newSlug])
+  }, [newSlug, dashboardUsername])
 
   useEffect(() => {
     if (!boxes?.length) return
@@ -403,10 +410,9 @@ function App() {
     try {
       const { publicKey } = await ensureLocalMlkemKeyPair()
       const publicKeyB64 = encodeMlkemPublicKeyBase64(publicKey)
-      const { shareURL } = await createBox({
+      const { shareURL } = await createBox(session.access_token, {
         slug,
         publicKey: publicKeyB64,
-        userId: session.user.id,
       })
       setNewSlug('')
       setSlugCheck('idle')
@@ -429,6 +435,22 @@ function App() {
       }
     } finally {
       setCreateBusy(false)
+    }
+  }
+
+  async function handleConfirmFile(f: DashboardFile) {
+    if (!session?.access_token || !selectedBoxId) return
+    setFileConfirmError(null)
+    setConfirmingFileId(f.id)
+    try {
+      await confirmUploadedFile(session.access_token, f.id)
+      invalidateDashboardApiCache()
+      const refreshed = await fetchMeBoxFiles(session.access_token, selectedBoxId)
+      setFiles(refreshed)
+    } catch (e: unknown) {
+      setFileConfirmError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setConfirmingFileId(null)
     }
   }
 
@@ -703,7 +725,7 @@ function App() {
                   meDashboardStatus === 'ready' &&
                   dashboardUsername !== null &&
                   slugCheck === 'check_failed' &&
-                  'Could not check slug — browser could not reach GET /boxes/check/… (API URL / proxy / CORS).'}
+                  'Could not check slug — browser could not reach GET /boxes/check/<username>/… (API URL / proxy / CORS).'}
               </p>
               {createError && <p className="dash-create-err">{createError}</p>}
               {createSuccess && (
@@ -790,6 +812,11 @@ function App() {
                       {fileDownloadError}
                     </p>
                   )}
+                  {fileConfirmError && (
+                    <p className="dash-create-err" role="alert">
+                      {fileConfirmError}
+                    </p>
+                  )}
                   <table className="dash-table">
                     <thead>
                       <tr>
@@ -798,7 +825,7 @@ function App() {
                         <th>Type</th>
                         <th>Size</th>
                         <th>Created</th>
-                        <th />
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -816,27 +843,45 @@ function App() {
                           <td>{formatBytes(f.byte_size_bytes)}</td>
                           <td>{new Date(f.created_at).toLocaleString()}</td>
                           <td>
-                            <button
-                              type="button"
-                              className="dash-download-btn"
-                              title={
-                                downloadingFileId === f.id ? 'Downloading…' : 'Download file'
-                              }
-                              aria-label={
-                                downloadingFileId === f.id
-                                  ? 'Downloading file'
-                                  : 'Download file'
-                              }
-                              aria-busy={downloadingFileId === f.id}
-                              disabled={
-                                f.status !== 'ACTIVE' ||
-                                keysStatus !== 'ready' ||
-                                downloadingFileId === f.id
-                              }
-                              onClick={() => void handleDownloadFile(f)}
-                            >
-                              <IconArrowDown />
-                            </button>
+                            <div className="dash-file-actions">
+                              {f.status === 'PENDING' && (
+                                <button
+                                  type="button"
+                                  className="dash-finalize-btn"
+                                  title={
+                                    confirmingFileId === f.id
+                                      ? 'Finalizing…'
+                                      : 'Mark upload complete (after ciphertext is in storage)'
+                                  }
+                                  aria-busy={confirmingFileId === f.id}
+                                  disabled={confirmingFileId === f.id}
+                                  onClick={() => void handleConfirmFile(f)}
+                                >
+                                  {confirmingFileId === f.id ? '…' : 'Finalize'}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="dash-download-btn"
+                                title={
+                                  downloadingFileId === f.id ? 'Downloading…' : 'Download file'
+                                }
+                                aria-label={
+                                  downloadingFileId === f.id
+                                    ? 'Downloading file'
+                                    : 'Download file'
+                                }
+                                aria-busy={downloadingFileId === f.id}
+                                disabled={
+                                  f.status !== 'ACTIVE' ||
+                                  keysStatus !== 'ready' ||
+                                  downloadingFileId === f.id
+                                }
+                                onClick={() => void handleDownloadFile(f)}
+                              >
+                                <IconArrowDown />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

@@ -8,11 +8,31 @@ export function getServiceClient(): SupabaseClient | null {
   return createClient(url, key);
 }
 
-export type SeededUser = { userId: string; username: string };
+export type SeededUser = {
+  userId: string;
+  username: string;
+  email: string;
+  password: string;
+};
 
 /** Strong enough for typical Supabase Auth password rules. */
 function randomPassword(): string {
   return `It-${randomUUID().replace(/-/g, '')}aA1!`;
+}
+
+/** Sign-in JWT for HTTP tests that require `Authorization: Bearer` (needs `SUPABASE_ANON_KEY` in env). */
+export async function getUserAccessToken(
+  supabaseUrl: string,
+  anonKey: string,
+  email: string,
+  password: string
+): Promise<string> {
+  const client = createClient(supabaseUrl, anonKey);
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
+  if (error || !data.session?.access_token) {
+    throw new Error(`getUserAccessToken: ${error?.message ?? 'no session'}`);
+  }
+  return data.session.access_token;
 }
 
 /**
@@ -24,11 +44,12 @@ export async function seedTestUser(
 ): Promise<SeededUser> {
   const username = `it_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const email = `${username}@integration.test.invalid`;
+  const password = randomPassword();
 
   const { data: created, error: authError } =
     await admin.auth.admin.createUser({
       email,
-      password: randomPassword(),
+      password,
       email_confirm: true,
     });
 
@@ -50,7 +71,7 @@ export async function seedTestUser(
 
   if (profileError) throw profileError;
 
-  return { userId, username };
+  return { userId, username, email, password };
 }
 
 /**
@@ -79,11 +100,13 @@ export async function deleteUserCascade(
 
 export async function getBoxIdBySlug(
   admin: SupabaseClient,
+  userId: string,
   slug: string
 ): Promise<string | null> {
   const { data, error } = await admin
     .from('boxes')
     .select('id')
+    .eq('user_id', userId)
     .eq('slug', slug)
     .maybeSingle();
   if (error) throw error;

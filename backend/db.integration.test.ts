@@ -3,6 +3,8 @@
  * - `SUPABASE_URL`
  * - `SUPABASE_SERVICE_ROLE_KEY` (same key `sb_utils` uses — Settings → API → service_role).
  *   Never expose this key in the browser or commit it.
+ * - `SUPABASE_ANON_KEY` — for HTTP tests that call `POST /boxes` or `PATCH /files/.../confirm`
+ *   with a real user JWT (`getUserAccessToken`).
  *
  * Seeding creates a real `auth.users` row first, then upserts `public.users`, so `userId`
  * satisfies a foreign key to `auth.users` when your schema uses that pattern.
@@ -20,10 +22,15 @@ import {
   deleteUserCascade,
   getBoxIdBySlug,
   getFileRowByS3Key,
+  getUserAccessToken,
   type SeededUser,
 } from './integration/db-helpers';
 
 const admin = getServiceClient();
+
+function uploadS3Key(ownerId: string, slug: string, leaf = 'object.bin'): string {
+  return `${ownerId}/${slug}/${randomUUID()}_${leaf}`;
+}
 
 describe.skipIf(!admin)('Supabase integration (real DB)', () => {
   const service = admin!;
@@ -46,13 +53,13 @@ describe.skipIf(!admin)('Supabase integration (real DB)', () => {
   it('chekSlugAvailability is false for new slug, true after createBox, false after deleteBox', async () => {
     const u = seededUser();
     const slug = `it-slug-${randomUUID()}`;
-    expect(await sbUtils.chekSlugAvailability(slug)).toBe(false);
+    expect(await sbUtils.chekSlugAvailability(u.username, slug)).toBe(false);
 
     await sbUtils.createBox(slug, 'mlkem-pk-test', u.userId);
-    expect(await sbUtils.chekSlugAvailability(slug)).toBe(true);
+    expect(await sbUtils.chekSlugAvailability(u.username, slug)).toBe(true);
 
-    await sbUtils.deleteBox(slug);
-    expect(await sbUtils.chekSlugAvailability(slug)).toBe(false);
+    await sbUtils.deleteBox(u.userId, slug);
+    expect(await sbUtils.chekSlugAvailability(u.username, slug)).toBe(false);
   });
 
   it('getUserIDByUsername and getKeyBySlug return the stored box public key', async () => {
@@ -66,16 +73,16 @@ describe.skipIf(!admin)('Supabase integration (real DB)', () => {
     const userId = await sbUtils.getUserIDByUsername(u.username);
     expect(await sbUtils.getKeyBySlug(userId, slug)).toBe(boxPk);
 
-    await sbUtils.deleteBox(slug);
+    await sbUtils.deleteBox(u.userId, slug);
   });
 
   it('addFile then confirmFile moves status to ACTIVE', async () => {
     const u = seededUser();
     const slug = `it-file-${randomUUID()}`;
-    const s3Key = `integration/${randomUUID()}/object.bin`;
+    const s3Key = uploadS3Key(u.userId, slug);
 
     await sbUtils.createBox(slug, 'pk', u.userId);
-    const boxId = await getBoxIdBySlug(service, slug);
+    const boxId = await getBoxIdBySlug(service, u.userId, slug);
     expect(boxId).not.toBeNull();
 
     await sbUtils.addFile(
@@ -96,43 +103,56 @@ describe.skipIf(!admin)('Supabase integration (real DB)', () => {
     const after = await getFileRowByS3Key(service, s3Key);
     expect(after?.status).toBe('ACTIVE');
 
-    await sbUtils.deleteBox(slug);
+    await sbUtils.deleteBox(u.userId, slug);
   });
 
-  it('POST /boxes creates a box and returns shareURL', async () => {
-    const u = seededUser();
-    const slug = `it-http-${randomUUID()}`;
-    const frontend = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+  it.skipIf(!process.env.SUPABASE_ANON_KEY)(
+    'POST /boxes creates a box and returns shareURL',
+    async () => {
+      const u = seededUser();
+      const slug = `it-http-${randomUUID()}`;
+      const frontend = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+      const token = await getUserAccessToken(
+        process.env.SUPABASE_URL!,
+        process.env.SUPABASE_ANON_KEY!,
+        u.email,
+        u.password
+      );
 
-    const res = await request(app)
-      .post('/boxes')
-      .send({
-        slug,
-        publicKey: 'http-test-pk',
-        userId: u.userId,
-      });
+      const res = await request(app)
+        .post('/boxes')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          slug,
+          publicKey: 'http-test-pk',
+        });
 
-    expect(res.status).toBe(200);
-    expect(res.body.shareURL).toBe(
-      `${frontend}/drop/${encodeURIComponent(u.username)}/${encodeURIComponent(slug)}`
-    );
+      expect(res.status).toBe(200);
+      expect(res.body.shareURL).toBe(
+        `${frontend}/drop/${encodeURIComponent(u.username)}/${encodeURIComponent(slug)}`
+      );
 
-    await sbUtils.deleteBox(slug);
-  });
+      await sbUtils.deleteBox(u.userId, slug);
+    }
+  );
 
-  it('GET /boxes/check/:slug matches DB state', async () => {
+  it('GET /boxes/check/:username/:slug matches DB state', async () => {
     const u = seededUser();
     const slug = `it-check-${randomUUID()}`;
 
-    let res = await request(app).get(`/boxes/check/${slug}`);
+    let res = await request(app).get(
+      `/boxes/check/${encodeURIComponent(u.username)}/${encodeURIComponent(slug)}`
+    );
     expect(res.status).toBe(200);
     expect(res.body.isAvailable).toBe(true);
 
     await sbUtils.createBox(slug, 'pk', u.userId);
-    res = await request(app).get(`/boxes/check/${slug}`);
+    res = await request(app).get(
+      `/boxes/check/${encodeURIComponent(u.username)}/${encodeURIComponent(slug)}`
+    );
     expect(res.body.isAvailable).toBe(false);
 
-    await sbUtils.deleteBox(slug);
+    await sbUtils.deleteBox(u.userId, slug);
   });
 
   it('GET /boxes/:username/:slug returns publicKey', async () => {
@@ -151,16 +171,16 @@ describe.skipIf(!admin)('Supabase integration (real DB)', () => {
     expect(typeof res.body.boxId).toBe('string');
     expect(res.body.ownerId).toBe(u.userId);
 
-    await sbUtils.deleteBox(slug);
+    await sbUtils.deleteBox(u.userId, slug);
   });
 
   it('POST /boxes/:id/uploads returns a string uploadURL', async () => {
     const u = seededUser();
     const slug = `it-up-${randomUUID()}`;
-    const s3Key = `integration/${randomUUID()}/upload.bin`;
+    const s3Key = uploadS3Key(u.userId, slug, 'upload.bin');
 
     await sbUtils.createBox(slug, 'pk', u.userId);
-    const boxId = await getBoxIdBySlug(service, slug);
+    const boxId = await getBoxIdBySlug(service, u.userId, slug);
 
     const res = await request(app)
       .post(`/boxes/${boxId}/uploads`)
@@ -178,33 +198,45 @@ describe.skipIf(!admin)('Supabase integration (real DB)', () => {
     expect(res.body.uploadURL).toMatch(/^https?:\/\//);
     expect(typeof res.body.fileId).toBe('string');
 
-    await sbUtils.deleteBox(slug);
+    await sbUtils.deleteBox(u.userId, slug);
   });
 
-  it('PATCH /files/:id/confirm succeeds', async () => {
-    const u = seededUser();
-    const slug = `it-confirm-${randomUUID()}`;
-    const s3Key = `integration/${randomUUID()}/confirm.bin`;
+  it.skipIf(!process.env.SUPABASE_ANON_KEY)(
+    'PATCH /files/:id/confirm succeeds for the box owner',
+    async () => {
+      const u = seededUser();
+      const slug = `it-confirm-${randomUUID()}`;
+      const s3Key = uploadS3Key(u.userId, slug, 'confirm.bin');
 
-    await sbUtils.createBox(slug, 'pk', u.userId);
-    const boxId = await getBoxIdBySlug(service, slug);
+      await sbUtils.createBox(slug, 'pk', u.userId);
+      const boxId = await getBoxIdBySlug(service, u.userId, slug);
 
-    await sbUtils.addFile(
-      boxId!,
-      'e',
-      'application/octet-stream',
-      1,
-      s3Key,
-      'n',
-      'k'
-    );
-    const row = await getFileRowByS3Key(service, s3Key);
-    expect(row).not.toBeNull();
+      await sbUtils.addFile(
+        boxId!,
+        'e',
+        'application/octet-stream',
+        1,
+        s3Key,
+        'n',
+        'k'
+      );
+      const row = await getFileRowByS3Key(service, s3Key);
+      expect(row).not.toBeNull();
 
-    const res = await request(app).patch(`/files/${row!.id}/confirm`);
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
+      const token = await getUserAccessToken(
+        process.env.SUPABASE_URL!,
+        process.env.SUPABASE_ANON_KEY!,
+        u.email,
+        u.password
+      );
 
-    await sbUtils.deleteBox(slug);
-  });
+      const res = await request(app)
+        .patch(`/files/${row!.id}/confirm`)
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      await sbUtils.deleteBox(u.userId, slug);
+    }
+  );
 });

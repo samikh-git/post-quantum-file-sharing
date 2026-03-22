@@ -1,9 +1,25 @@
 import cors from 'cors';
 import express, { Request, Response, Application, NextFunction } from 'express';
 import { requireAuth } from './authMiddleware';
+import {
+  uploadRegisterIpLimiter,
+  uploadRegisterPerBoxLimiter,
+} from './rateLimits';
 import * as sbUtils from './sb_utils';
+import {
+  isStorageKeyAllowedForBox,
+  isValidBoxSlug,
+  isValidByteSize,
+  isValidContentType,
+  isValidEncryptedName,
+  isValidKemField,
+  isValidRecipientPublicKey,
+} from './uploadValidation';
 
 const app: Application = express();
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
@@ -88,22 +104,28 @@ app.get(
 );
 
 app.get(
-  '/boxes/check/:slug',
+  '/boxes/check/:username/:slug',
   asyncHandler(async (req, res) => {
-    const { slug } = req.params as { slug: string };
-    const isTaken = await sbUtils.chekSlugAvailability(slug);
+    const { username, slug } = req.params as { username: string; slug: string };
+    const isTaken = await sbUtils.chekSlugAvailability(username, slug);
     res.json({ isAvailable: !isTaken });
   })
 );
 
 app.post(
   '/boxes',
+  requireAuth,
   asyncHandler(async (req, res) => {
-    const { slug, publicKey, userId } = req.body as {
-      slug: string;
-      publicKey: string;
-      userId: string;
-    };
+    const { slug, publicKey } = req.body as { slug?: unknown; publicKey?: unknown };
+    const userId = req.userId!;
+    if (!isValidBoxSlug(slug)) {
+      res.status(400).json({ error: 'invalid_slug' });
+      return;
+    }
+    if (!isValidRecipientPublicKey(publicKey)) {
+      res.status(400).json({ error: 'invalid_public_key' });
+      return;
+    }
     const username = await sbUtils.getUsernameByID(userId);
     if (username == null) {
       res.status(409).json({ error: 'profile_missing' });
@@ -140,6 +162,8 @@ app.get(
 
 app.post(
   '/boxes/:id/uploads',
+  uploadRegisterIpLimiter,
+  uploadRegisterPerBoxLimiter,
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
     const {
@@ -149,14 +173,39 @@ app.post(
       s3Key,
       nonce,
       kemCiphertext,
-    } = req.body as {
-      encryptedName: string;
-      contentType: string;
-      byteSizeBytes: number;
-      s3Key: string;
-      nonce: string;
-      kemCiphertext: string;
-    };
+    } = req.body as Record<string, unknown>;
+
+    const boxCtx = await sbUtils.getBoxOwnerIdAndSlug(id);
+    if (!boxCtx) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    if (typeof s3Key !== 'string' || !isStorageKeyAllowedForBox(s3Key, boxCtx.ownerId, boxCtx.slug)) {
+      res.status(400).json({ error: 'invalid_s3_key' });
+      return;
+    }
+    if (!isValidEncryptedName(encryptedName)) {
+      res.status(400).json({ error: 'invalid_encrypted_name' });
+      return;
+    }
+    if (!isValidContentType(contentType)) {
+      res.status(400).json({ error: 'invalid_content_type' });
+      return;
+    }
+    if (!isValidByteSize(byteSizeBytes)) {
+      res.status(400).json({ error: 'invalid_byte_size' });
+      return;
+    }
+    if (!isValidKemField(nonce)) {
+      res.status(400).json({ error: 'invalid_nonce' });
+      return;
+    }
+    if (!isValidKemField(kemCiphertext)) {
+      res.status(400).json({ error: 'invalid_kem_ciphertext' });
+      return;
+    }
+
     const fileId = await sbUtils.addFile(
       id,
       encryptedName,
@@ -173,9 +222,14 @@ app.post(
 
 app.patch(
   '/files/:id/confirm',
+  requireAuth,
   asyncHandler(async (req, res) => {
     const { id } = req.params as { id: string };
-    await sbUtils.confirmFile(id);
+    const ok = await sbUtils.confirmFileIfOwned(id, req.userId!);
+    if (!ok) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
     res.json({ success: true });
   })
 );
