@@ -1,0 +1,418 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import request from 'supertest';
+
+vi.mock('./sb_utils', () => ({
+  chekSlugAvailability: vi.fn(),
+  createBox: vi.fn(),
+  deleteBox: vi.fn(),
+  getBoxForSharedUpload: vi.fn(),
+  addFile: vi.fn(),
+  getUsernameByID: vi.fn(),
+  getUserIDByUsername: vi.fn(),
+  getUploadPresignedURL: vi.fn(),
+  getDownloadSignedUrl: vi.fn(),
+  getFileDownloadMetaIfOwned: vi.fn(),
+  confirmFile: vi.fn(),
+  verifyAccessToken: vi.fn(),
+  listBoxesForUser: vi.fn(),
+  getBoxOwnerUserId: vi.fn(),
+  listFilesByBoxId: vi.fn(),
+}));
+
+import * as sbUtils from './sb_utils';
+import app from './app';
+
+describe('GET /me/boxes', () => {
+  beforeEach(() => {
+    process.env.FRONTEND_URL = 'https://frontend.test';
+    vi.mocked(sbUtils.verifyAccessToken).mockReset();
+    vi.mocked(sbUtils.getUsernameByID).mockReset();
+    vi.mocked(sbUtils.listBoxesForUser).mockReset();
+  });
+
+  it('returns 401 without Authorization', async () => {
+    const res = await request(app).get('/me/boxes');
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'unauthorized' });
+  });
+
+  it('returns 401 when token is invalid', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue(null);
+
+    const res = await request(app)
+      .get('/me/boxes')
+      .set('Authorization', 'Bearer bad');
+
+    expect(res.status).toBe(401);
+  });
+
+  it('returns boxes with shareURL when token is valid', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-dash');
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue('alice');
+    vi.mocked(sbUtils.listBoxesForUser).mockResolvedValue([
+      {
+        id: 'b1',
+        slug: 'drop-1',
+        is_active: true,
+        expires_at: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/me/boxes')
+      .set('Authorization', 'Bearer valid.jwt');
+
+    expect(res.status).toBe(200);
+    expect(res.body.username).toBe('alice');
+    expect(res.body.boxes).toHaveLength(1);
+    expect(res.body.boxes[0].shareURL).toBe(
+      'https://frontend.test/drop/alice/drop-1'
+    );
+    expect(sbUtils.verifyAccessToken).toHaveBeenCalledWith('valid.jwt');
+    expect(sbUtils.listBoxesForUser).toHaveBeenCalledWith('uid-dash');
+  });
+
+  it('returns null username and null shareURLs when public.users row is missing', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-dash');
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue(null);
+    vi.mocked(sbUtils.listBoxesForUser).mockResolvedValue([
+      {
+        id: 'b1',
+        slug: 'drop-1',
+        is_active: true,
+        expires_at: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+        updated_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/me/boxes')
+      .set('Authorization', 'Bearer valid.jwt');
+
+    expect(res.status).toBe(200);
+    expect(res.body.username).toBeNull();
+    expect(res.body.boxes[0].shareURL).toBeNull();
+  });
+});
+
+describe('GET /me/boxes/:boxId/files', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.verifyAccessToken).mockReset();
+    vi.mocked(sbUtils.getBoxOwnerUserId).mockReset();
+    vi.mocked(sbUtils.listFilesByBoxId).mockReset();
+  });
+
+  it('returns 403 when the box belongs to another user', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('me');
+    vi.mocked(sbUtils.getBoxOwnerUserId).mockResolvedValue('other');
+
+    const res = await request(app)
+      .get('/me/boxes/box-uuid/files')
+      .set('Authorization', 'Bearer t');
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ error: 'forbidden' });
+  });
+
+  it('returns 404 when the box does not exist', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('me');
+    vi.mocked(sbUtils.getBoxOwnerUserId).mockResolvedValue(null);
+
+    const res = await request(app)
+      .get('/me/boxes/missing/files')
+      .set('Authorization', 'Bearer t');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'not_found' });
+  });
+
+  it('returns files when the caller owns the box', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('owner-id');
+    vi.mocked(sbUtils.getBoxOwnerUserId).mockResolvedValue('owner-id');
+    vi.mocked(sbUtils.listFilesByBoxId).mockResolvedValue([
+      {
+        id: 'f1',
+        encrypted_name: 'enc',
+        content_type: 'application/octet-stream',
+        byte_size_bytes: 10,
+        status: 'PENDING',
+        created_at: '2026-01-01T00:00:00.000Z',
+        uploaded_at: null,
+        confirmed_at: null,
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/me/boxes/box-uuid/files')
+      .set('Authorization', 'Bearer t');
+
+    expect(res.status).toBe(200);
+    expect(res.body.files).toHaveLength(1);
+    expect(res.body.files[0].status).toBe('PENDING');
+    expect(sbUtils.listFilesByBoxId).toHaveBeenCalledWith('box-uuid');
+  });
+});
+
+describe('GET /me/files/:fileId/download', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.verifyAccessToken).mockReset();
+    vi.mocked(sbUtils.getFileDownloadMetaIfOwned).mockReset();
+    vi.mocked(sbUtils.getDownloadSignedUrl).mockReset();
+  });
+
+  it('returns 401 without Authorization', async () => {
+    const res = await request(app).get('/me/files/f1/download');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 when file is missing or not owned', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('me');
+    vi.mocked(sbUtils.getFileDownloadMetaIfOwned).mockResolvedValue(null);
+
+    const res = await request(app)
+      .get('/me/files/missing/download')
+      .set('Authorization', 'Bearer t');
+
+    expect(res.status).toBe(404);
+    expect(sbUtils.getFileDownloadMetaIfOwned).toHaveBeenCalledWith('missing', 'me');
+  });
+
+  it('returns 409 when file is not ACTIVE', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('me');
+    vi.mocked(sbUtils.getFileDownloadMetaIfOwned).mockResolvedValue({
+      encrypted_name: '{}',
+      nonce: 'n',
+      kem_ciphertext: 'k',
+      s3_key: 'path/obj',
+      content_type: 'application/octet-stream',
+      status: 'PENDING',
+    });
+
+    const res = await request(app)
+      .get('/me/files/f-pending/download')
+      .set('Authorization', 'Bearer t');
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'not_ready' });
+    expect(sbUtils.getDownloadSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it('returns signedUrl and crypto fields when ACTIVE', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('me');
+    vi.mocked(sbUtils.getFileDownloadMetaIfOwned).mockResolvedValue({
+      encrypted_name: '{"v":1}',
+      nonce: 'nn',
+      kem_ciphertext: 'kk',
+      s3_key: 'u/box/file.bin',
+      content_type: 'text/plain',
+      status: 'ACTIVE',
+    });
+    vi.mocked(sbUtils.getDownloadSignedUrl).mockResolvedValue('https://storage.test/get?sig=1');
+
+    const res = await request(app)
+      .get('/me/files/f-active/download')
+      .set('Authorization', 'Bearer t');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      signedUrl: 'https://storage.test/get?sig=1',
+      encrypted_name: '{"v":1}',
+      nonce: 'nn',
+      kem_ciphertext: 'kk',
+      content_type: 'text/plain',
+    });
+    expect(sbUtils.getDownloadSignedUrl).toHaveBeenCalledWith('u/box/file.bin');
+  });
+});
+
+describe('GET /boxes/check/:slug', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.chekSlugAvailability).mockReset();
+  });
+
+  it('returns isAvailable true when slug is not taken', async () => {
+    vi.mocked(sbUtils.chekSlugAvailability).mockResolvedValue(false);
+
+    const res = await request(app).get('/boxes/check/free-slug');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ isAvailable: true });
+    expect(sbUtils.chekSlugAvailability).toHaveBeenCalledWith('free-slug');
+  });
+
+  it('returns isAvailable false when slug is taken', async () => {
+    vi.mocked(sbUtils.chekSlugAvailability).mockResolvedValue(true);
+
+    const res = await request(app).get('/boxes/check/taken-slug');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ isAvailable: false });
+  });
+});
+
+describe('POST /boxes', () => {
+  beforeEach(() => {
+    process.env.FRONTEND_URL = 'https://frontend.test';
+    vi.mocked(sbUtils.createBox).mockReset();
+    vi.mocked(sbUtils.getUsernameByID).mockReset();
+  });
+
+  it('creates a box and returns shareURL with username and slug', async () => {
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue('alice');
+
+    const res = await request(app)
+      .post('/boxes')
+      .send({
+        slug: 'my-box',
+        publicKey: 'pk-base64',
+        userId: 'user-uuid-1',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.shareURL).toBe(
+      'https://frontend.test/drop/alice/my-box'
+    );
+    expect(sbUtils.createBox).toHaveBeenCalledWith(
+      'my-box',
+      'pk-base64',
+      'user-uuid-1'
+    );
+    expect(sbUtils.getUsernameByID).toHaveBeenCalledWith('user-uuid-1');
+  });
+
+  it('returns 409 when user has no public.users profile', async () => {
+    vi.mocked(sbUtils.getUsernameByID).mockResolvedValue(null);
+
+    const res = await request(app)
+      .post('/boxes')
+      .send({
+        slug: 'my-box',
+        publicKey: 'pk-base64',
+        userId: 'user-uuid-1',
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'profile_missing' });
+    expect(sbUtils.createBox).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /boxes/:username/:slug', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.getUserIDByUsername).mockReset();
+    vi.mocked(sbUtils.getBoxForSharedUpload).mockReset();
+  });
+
+  it('resolves user by username then returns public key for that box', async () => {
+    vi.mocked(sbUtils.getUserIDByUsername).mockResolvedValue('uid-42');
+    vi.mocked(sbUtils.getBoxForSharedUpload).mockResolvedValue({
+      boxId: 'box-uuid-99',
+      publicKey: 'box-pk',
+    });
+
+    const res = await request(app).get('/boxes/alice/secret-drop');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      publicKey: 'box-pk',
+      boxId: 'box-uuid-99',
+      ownerId: 'uid-42',
+    });
+    expect(sbUtils.getUserIDByUsername).toHaveBeenCalledWith('alice');
+    expect(sbUtils.getBoxForSharedUpload).toHaveBeenCalledWith('uid-42', 'secret-drop');
+  });
+
+  it('returns 404 when username does not exist', async () => {
+    vi.mocked(sbUtils.getUserIDByUsername).mockResolvedValue(null);
+
+    const res = await request(app).get('/boxes/nobody/secret-drop');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'not_found' });
+    expect(sbUtils.getBoxForSharedUpload).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when box slug does not exist for user', async () => {
+    vi.mocked(sbUtils.getUserIDByUsername).mockResolvedValue('uid-42');
+    vi.mocked(sbUtils.getBoxForSharedUpload).mockResolvedValue(null);
+
+    const res = await request(app).get('/boxes/alice/missing-slug');
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'not_found' });
+  });
+});
+
+describe('POST /boxes/:id/uploads', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.addFile).mockReset();
+    vi.mocked(sbUtils.getUploadPresignedURL).mockReset();
+  });
+
+  it('registers file metadata and returns a string upload URL (not a Promise)', async () => {
+    vi.mocked(sbUtils.addFile).mockResolvedValue('new-file-id');
+    vi.mocked(sbUtils.getUploadPresignedURL).mockResolvedValue(
+      'https://storage.test/upload?sig=1'
+    );
+
+    const body = {
+      encryptedName: 'enc-name',
+      contentType: 'application/octet-stream',
+      byteSizeBytes: 1024,
+      s3Key: 'user/box/obj.bin',
+      nonce: 'n',
+      kemCiphertext: 'kem',
+    };
+
+    const res = await request(app)
+      .post('/boxes/box-uuid-9/uploads')
+      .send(body);
+
+    expect(res.status).toBe(200);
+    expect(res.body.uploadURL).toBe('https://storage.test/upload?sig=1');
+    expect(res.body.fileId).toBe('new-file-id');
+    expect(typeof res.body.uploadURL).toBe('string');
+    expect(sbUtils.addFile).toHaveBeenCalledWith(
+      'box-uuid-9',
+      body.encryptedName,
+      body.contentType,
+      body.byteSizeBytes,
+      body.s3Key,
+      body.nonce,
+      body.kemCiphertext
+    );
+    expect(sbUtils.getUploadPresignedURL).toHaveBeenCalledWith(body.s3Key);
+  });
+});
+
+describe('PATCH /files/:id/confirm', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.confirmFile).mockReset();
+  });
+
+  it('confirms the file and returns success', async () => {
+    vi.mocked(sbUtils.confirmFile).mockResolvedValue(undefined);
+
+    const res = await request(app).patch('/files/file-uuid-7/confirm');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(sbUtils.confirmFile).toHaveBeenCalledWith('file-uuid-7');
+  });
+});
+
+describe('error handling', () => {
+  it('returns 500 when a handler rejects', async () => {
+    vi.mocked(sbUtils.chekSlugAvailability).mockRejectedValue(
+      new Error('db down')
+    );
+
+    const res = await request(app).get('/boxes/check/x');
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'internal_server_error' });
+  });
+});

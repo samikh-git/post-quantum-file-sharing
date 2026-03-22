@@ -1,0 +1,39 @@
+.about-page .about-section {
+  margin-top: 16px;
+}
+
+.about-page .about-section:first-of-type {
+  margin-top: 0;
+}
+
+.about-h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.about-p {
+  margin: 0;
+}
+
+.about-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text);
+  opacity: 0.95;
+}
+
+.about-list li {
+  margin-bottom: 10px;
+}
+
+.about-list li:last-child {
+  margin-bottom: 0;
+}
+
+.about-section--muted {
+  opacity: 0.95;
+}

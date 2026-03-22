@@ -1,0 +1,135 @@
+.upload-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+  text-align: left;
+}
+
+.upload-header {
+  margin-bottom: 24px;
+}
+
+.upload-title {
+  margin: 0 0 8px;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--text-h);
+  font-family: var(--heading);
+}
+
+.upload-sub {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.upload-header-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 20px;
+}
+
+.upload-back {
+  font-size: 0.9rem;
+  color: var(--accent-text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.upload-back:hover {
+  text-decoration: underline;
+}
+
+.upload-card {
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--social-bg);
+  box-shadow: var(--shadow);
+}
+
+.upload-card--muted {
+  opacity: 0.95;
+}
+
+.upload-code-inline {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--text-h);
+}
+
+.upload-hint {
+  margin: 0 0 18px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--text);
+  opacity: 0.92;
+}
+
+.upload-hint--spaced {
+  margin-top: 12px;
+}
+
+.upload-file-label {
+  display: inline-block;
+  cursor: pointer;
+}
+
+.upload-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
+.upload-file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--accent-on-accent);
+  border: none;
+}
+
+.upload-file-input:disabled + .upload-file-btn {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.upload-status {
+  margin: 14px 0 0;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.upload-ok {
+  margin: 14px 0 0;
+  font-size: 0.9rem;
+  color: #15803d;
+  line-height: 1.45;
+}
+
+@media (prefers-color-scheme: dark) {
+  .upload-ok {
+    color: #4ade80;
+  }
+}
+
+.upload-err {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
