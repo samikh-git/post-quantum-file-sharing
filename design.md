@@ -1,13 +1,19 @@
-# Design process
+# Design
 
-## Algorithms
+High-level data model, storage layout, and API shape for **post-quantum file sharing**. For exact request/response codes and env vars, prefer [`backend/README.md`](backend/README.md).
 
-## PostgreSQL Table Schemas
+## Cryptography (client-side)
 
-Schema below is normalized for ownership checks, file lifecycle (`PENDING` -> `ACTIVE`), and reliable querying.
+- **ML-KEM-768** (and related AEAD) run in the browser via **WebAssembly**, built from Rust (`frontend/public/crypto-module`).
+- **Public** drop page fetches the box owner’s **recipient public key** from the API and encrypts file name + payload in the browser.
+- The **server** stores **ciphertext**, **KEM metadata**, and **opaque encrypted filenames** — not plaintext content.
+
+## PostgreSQL (intended shape)
+
+Normalized for ownership, `(user_id, slug)` scoping, and file lifecycle **`PENDING` → `ACTIVE`**.
 
 ```sql
--- In production, `id` should match `auth.users.id` (see supabase/migrations/*_sync_public_users_on_auth_user.sql).
+-- public.users.id should match auth.users.id (see supabase/migrations/*_sync_public_users_on_auth_user.sql).
 CREATE TABLE users (
   id uuid PRIMARY KEY,
   username text NOT NULL UNIQUE,
@@ -19,12 +25,13 @@ CREATE TABLE users (
 CREATE TABLE boxes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  slug text NOT NULL UNIQUE,
+  slug text NOT NULL,
   public_key text NOT NULL,
   is_active boolean NOT NULL DEFAULT true,
   expires_at timestamptz NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, slug)
 );
 
 CREATE TABLE files (
@@ -43,128 +50,49 @@ CREATE TABLE files (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_boxes_user_id ON boxes(user_id);
-CREATE INDEX idx_files_box_id_created_at ON files(box_id, created_at DESC);
-CREATE INDEX idx_files_status ON files(status);
+CREATE INDEX idx_boxes_user_id ON boxes (user_id);
+CREATE INDEX idx_files_box_id ON files (box_id);
+CREATE INDEX idx_files_status ON files (status);
 ```
 
-Notes:
-- `shareable_link` is intentionally omitted because it can be derived from `slug`.
-- `files.box_id` enables efficient `GET /boxes/:id/files` lookups and ownership checks.
-- `status` + `confirmed_at` model the upload confirmation flow from your API.
+**Notes**
 
-## S3 Object Storage
+- Share paths are **`/drop/:username/:slug`**; slug uniqueness is **per owner**, not global (`UNIQUE (user_id, slug)`).
+- `files.s3_key` is globally unique; server validation enforces **`{ownerId}/{slug}/{uuid_v4}_{safeLeaf}`** for anonymous uploads.
+- `shareURL` is derived from `FRONTEND_URL` + username + slug — not stored as a column.
 
-Key convention: `user/slug/file_name`
+## Object storage (Supabase Storage)
 
-## API
+- **Bucket** (implementation): `secure-drop-bucket`.
+- **Key convention** (enforced on register):  
+  `{owner_uuid}/{slug}/{uuid_v4}_{sanitized_filename}`  
+  Owner id segment is compared case-insensitively; slug segment must match the `boxes.slug` row exactly.
 
-### Boxes (Links)
-Managing the "drop zones" where people can upload files.
+## API (conceptual map)
 
-#### `GET /boxes/check/:slug`
-Checks if a custom URL slug is available for use.
+| Method | Path | Auth | Role |
+|--------|------|------|------|
+| GET | `/me/boxes` | Bearer | List owner’s boxes + share URLs |
+| GET | `/me/boxes/:boxId/files` | Bearer | List files in a box (dashboard) |
+| GET | `/me/files/:fileId/download` | Bearer | Signed URL + KEM fields for decrypt |
+| GET | `/boxes/check/:username/:slug` | No | Slug free for that user? |
+| POST | `/boxes` | Bearer | Create box (body: `slug`, `publicKey` only) |
+| GET | `/boxes/:username/:slug` | No | Public key + `boxId` + `ownerId` for uploader |
+| POST | `/boxes/:id/uploads` | No (rate-limited) | Insert `files` row + signed **upload** URL |
+| PATCH | `/files/:id/confirm` | Bearer (owner) | Set file `ACTIVE` |
 
-- Auth required: Yes
-- Responses:
-  - `200 OK`: Slug is available
-  - `409 Conflict`: Slug is already taken
+Legacy or alternate names in older sketches (`GET /public/boxes/:slug`, body field names like `fileName`) are **not** what the current Express app implements — use `backend/README.md` and `app.ts` as source of truth.
 
-#### `POST /boxes`
-Creates a new shareable DropBox link.
+## Upload flow (happy path)
 
-- Auth required: Yes
-- Request body:
+1. Uploader opens **`/drop/:username/slug`**, loads box metadata, encrypts in browser.
+2. **`POST /boxes/:boxId/uploads`** with metadata and a valid **`s3Key`** → receive **`uploadURL`** + **`fileId`**.
+3. Browser **PUT**s ciphertext to Storage (not proxied through Express).
+4. Box owner signs in, sees **PENDING** file, clicks **Finalize** → **`PATCH /files/:fileId/confirm`** (Bearer).
+5. Owner can download via **`GET /me/files/:fileId/download`** when status is **ACTIVE**.
 
-```json
-{
-  "slug": "blue-mountain-42",
-  "publicKey": "base64_encoded_ml_kem_key...",
-  "expiresAt": "2026-03-25T12:00:00Z"
-}
-```
+## Operational hardening (outside this repo)
 
-- Response: `201 Created`
-
-```json
-{
-  "id": "uuid-123",
-  "shareUrl": "https://your-app.com/drop/blue-mountain-42"
-}
-```
-
-#### `GET /public/boxes/:slug`
-Public endpoint for "Bob" (the uploader) to get the handshake data.
-
-- Auth required: No
-- Response: `200 OK`
-
-```json
-{
-  "boxId": "uuid-123",
-  "publicKey": "base64_encoded_ml_kem_key..."
-}
-```
-
-### Uploads
-The multi-step process for secure file delivery.
-
-#### `POST /boxes/:id/uploads`
-Requests a "permission slip" to upload a file directly to S3.
-
-- Auth required: No (public drop)
-- Request body:
-
-```json
-{
-  "fileName": "encrypted_name_string",
-  "fileType": "application/octet-stream",
-  "fileSize": 5242880,
-  "nonce": "base64_nonce...",
-  "kemCiphertext": "base64_ciphertext..."
-}
-```
-
-- Response: `200 OK`
-
-```json
-{
-  "fileId": "uuid-abc",
-  "uploadUrl": "https://s3.amazonaws.com/your-bucket/path?signature=..."
-}
-```
-
-#### `PATCH /files/:id/confirm`
-Notifies the database that the S3 upload was successful.
-
-- Auth required: No
-- Note: Moves the file from `PENDING` to `ACTIVE` in Postgres
-- Response: `204 No Content`
-
-### Storage & Cleanup
-Endpoints for "Alice" to manage her received files.
-
-#### `GET /boxes/:id/files`
-Lists all encrypted files currently sitting in a specific box.
-
-- Auth required: Yes
-- Response: `200 OK`
-
-```json
-[
-  {
-    "id": "uuid-abc",
-    "encryptedName": "...",
-    "nonce": "...",
-    "kemCiphertext": "...",
-    "s3Url": "https://...",
-    "createdAt": "2026-03-21T11:50:00Z"
-  }
-]
-```
-
-#### `DELETE /files/:id`
-The "Burn" command. Deletes metadata from Postgres and the blob from S3.
-
-- Auth required: Yes
-- Response: `204 No Content`
+- **Rate limits** on upload registration live in **`rateLimits.ts`** (see backend README).
+- **Raw Storage traffic** (PUT/GET to Supabase) is not limited by Express; use **CDN/WAF** or provider quotas if needed.
+- **Service role** key: server-only; prefer **RLS** in Supabase as defense-in-depth if you add direct client DB access later.

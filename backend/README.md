@@ -1,59 +1,85 @@
 # Backend API
 
-Express service for **post-quantum file sharing**: box (drop link) lifecycle, encrypted file metadata, and Supabase Storage signed upload URLs. Data lives in **Supabase** (Postgres + Storage); this server uses the **Supabase service role** key (see [Configuration](#configuration)).
+Express service for **post-quantum file sharing**: drop links (`boxes`), encrypted file metadata (`files`), and **Supabase Storage** signed URLs. Data lives in **Supabase** (Postgres + Storage). This server uses the **Supabase service role** key — it bypasses RLS, so **authorization must be enforced in route handlers** (`app.ts`) and helpers (`sb_utils.ts`).
 
 ---
 
 ## Configuration
 
-Environment variables are loaded via `dotenv` (see `.endpoints.config.ts`).
+Loaded via `dotenv` in `.endpoints.config.ts` (imported from `sb_utils.ts`).
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `SUPABASE_URL` | Yes | Supabase project URL. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-side Supabase client. **Bypasses Row Level Security** — public routes still rely on app logic; dashboard routes validate **Supabase access tokens** (`verifyAccessToken` / `requireAuth`). Never expose in browsers or client bundles. |
-| `SUPABASE_JWT_SECRET` | Optional (legacy) | Symmetric **JWT Secret** for **HS256** tokens only. New projects often use **JWT signing keys (ES256)** instead; those are verified via **JWKS** at `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` automatically — **no env var needed**. If HS256 verify fails or this is unset, the API falls back to `auth.getUser`. |
-| `FRONTEND_URL` | For share links | Base URL used when building `shareURL` in `POST /boxes` (no trailing slash expected in paths below). |
+### Required
 
-Optional: `.env.test` for overrides during tests.
+| Variable | Purpose |
+|----------|---------|
+| `SUPABASE_URL` | Supabase project URL. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only client. **Never** expose in browsers or frontend bundles. |
+
+### Strongly recommended for production
+
+| Variable | Purpose |
+|----------|---------|
+| `FRONTEND_URL` | Public origin of the SPA **without trailing slash** (e.g. `https://app.example.com`). Used for `shareURL` in `POST /boxes` and dashboard links. |
+| `PORT` | Listen port (set automatically on **Railway** / many PaaS). Locally defaults to **3001** in `server.ts` if unset. |
+| `TRUST_PROXY=1` | Sets Express `trust proxy` so **`req.ip`** is correct behind nginx / Railway / etc. **Needed for meaningful upload rate limits.** |
+
+### Optional — JWT verification
+
+| Variable | Purpose |
+|----------|---------|
+| `SUPABASE_JWT_SECRET` | Legacy **HS256** JWT secret. New projects often use **ES256** signing keys; those are verified via **JWKS** at `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` without this variable. If local verify fails, the API falls back to `auth.getUser`. |
+
+### Optional — upload rate limits (`POST /boxes/:id/uploads`)
+
+Implemented in `rateLimits.ts`. Disabled when `RATE_LIMIT_DISABLED=true` or `1` (debug only).
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `UPLOAD_REGISTER_WINDOW_MS` | `900000` (15 min) | Sliding window length. |
+| `UPLOAD_REGISTER_MAX_PER_IP` | `60` | Max registration + presign requests per IP per window. |
+| `UPLOAD_REGISTER_MAX_PER_BOX` | `200` | Max per `boxes.id` per window (all IPs). |
+
+Responses use **`429`** with `{ "error": "rate_limited" }`. Standard rate-limit headers apply on the per-IP limiter.
 
 ---
 
 ## Run locally
 
-Install dependencies:
-
 ```bash
 npm install
+npm run dev   # or npm start
 ```
 
-Run the HTTP server (default port **3001**):
+Listens on **`process.env.PORT` or 3001**. Enable CORS for browser clients (`cors` with reflected `Origin`).
 
-```bash
-npm run dev
-# or: npm start
-```
+---
 
-`server.ts` loads `app.ts` and listens on `PORT` or `3001`. **CORS** is enabled for browser clients (`cors` with reflected origin).
+## Security model (summary)
 
-Point `FRONTEND_URL` at your web app (e.g. `http://localhost:5173` for Vite) when building share links.
-
-**`ERR_CONNECTION_REFUSED` on localhost** means the dev server for that port is not running. The **dashboard and upload pages** are served by **Vite** (usually **5173**), not by this API (**3001**). From the **repository root**, run `npm install` and `npm run dev` to start API + Vite together (see the root `README.md`).
-
-The **Vite** dev server can proxy **`/me`**, **`/boxes`**, and **`/files`** to this API when `VITE_API_URL` is unset; see `frontend/vite.config.ts` and `frontend/.env.example`.
+- **Owner routes** (`/me/...`, `POST /boxes`, `PATCH /files/:id/confirm`) require **`Authorization: Bearer <Supabase access token>`**; `sub` is the user id.
+- **`POST /boxes`** ignores any client-supplied user id — the box is created for the authenticated user only. Slug and public key are validated (`uploadValidation.ts`).
+- **Anonymous upload registration** `POST /boxes/:id/uploads` does not use Bearer auth; **`s3_key`** must match **`{ownerId}/{slug}/{uuid_v4}_{safeLeaf}`** for that box (see `uploadValidation.ts`). Rate limits apply.
+- **`PATCH /files/:id/confirm`** is **owner-only** (`confirmFileIfOwned`); anonymous uploaders do not finalize — the owner uses the dashboard **Finalize** action after ciphertext is in Storage.
 
 ---
 
 ## API overview
 
-- **Base path**: all routes below are **root-relative** (e.g. `GET /boxes/check/:slug`).
-- **Content type**: JSON for bodies; use `Content-Type: application/json` on `POST`/`PATCH`.
-- **Dashboard auth**: Send **`Authorization: Bearer <Supabase access token>`** (same JWT as `supabase.auth.getSession()` on the web app). The server resolves the user with `supabase.auth.getUser(token)` and uses that UUID as `public.users.id` / `boxes.user_id`.
-- **Errors**:
-  - **`401`** `{ "error": "unauthorized" }` — missing/invalid Bearer token (dashboard routes).
-  - **`403`** `{ "error": "forbidden" }` — valid user but not the owner of the requested box.
-  - **`404`** `{ "error": "not_found" }` — box id does not exist (dashboard file list).
-  - **`500`** `{ "error": "internal_server_error" }` — unhandled failures.
+- **JSON** bodies: `Content-Type: application/json`.
+- **Dashboard auth**: `Authorization: Bearer` — same access token as `supabase.auth.getSession()` in the web app.
+
+### Common errors
+
+| Status | Body | When |
+|--------|------|------|
+| `401` | `{ "error": "unauthorized" }` | Missing/invalid Bearer token on protected routes. |
+| `403` | `{ "error": "forbidden" }` | Authenticated but not the box owner. |
+| `404` | `{ "error": "not_found" }` | Missing resource or confirm denied (opaque). |
+| `409` | `{ "error": "not_ready" }` | Download requested while file not `ACTIVE`. |
+| `409` | `{ "error": "profile_missing" }` | No `public.users` row for the auth user (`POST /boxes`). |
+| `400` | `{ "error": "invalid_…" }` | Bad slug, key, `s3_key`, sizes, etc. |
+| `429` | `{ "error": "rate_limited" }` | Upload registration rate limit. |
+| `500` | `{ "error": "internal_server_error" }` | Unhandled failure. |
 
 ---
 
@@ -61,111 +87,115 @@ The **Vite** dev server can proxy **`/me`**, **`/boxes`**, and **`/files`** to t
 
 ### `GET /me/boxes` (authenticated)
 
-Lists **all boxes** owned by the signed-in user, with **share URLs** for the dashboard.
+Lists boxes for the signed-in user and builds share URLs when `username` exists.
 
 | | |
 |---|---|
-| **Headers** | `Authorization: Bearer <access_token>` (required). |
-| **Response `200`** | `{ "username": string \| null, "boxes": Array<…> }` — each `shareURL` is `${FRONTEND_URL}/drop/${username}/${slug}` when `username` is present. |
+| **Headers** | `Authorization: Bearer <access_token>` |
+| **200** | `{ "username": string \| null, "boxes": [ { id, slug, is_active, expires_at, created_at, updated_at, shareURL } ] }` — `shareURL` is `${FRONTEND_URL}/drop/${username}/${slug}` when `username` is set. |
 
 ---
 
 ### `GET /me/boxes/:boxId/files` (authenticated)
 
-Lists **files** for one box with **upload status** and metadata safe for the UI (no `nonce`, `kem_ciphertext`, or `s3_key`).
+Lists files for a box (no `nonce` / `kem_ciphertext` / `s3_key` in list).
 
 | | |
 |---|---|
-| **Headers** | `Authorization: Bearer <access_token>` (required). |
-| **Path params** | `boxId` — `boxes.id` (UUID). |
-| **Response `200`** | `{ "files": Array<{ id, encrypted_name, content_type, byte_size_bytes, status, created_at, uploaded_at, confirmed_at }> }` — `status` is typically `PENDING` until `PATCH /files/:id/confirm`, then `ACTIVE`. |
-| **Response `403`** | Caller is not the box owner. |
-| **Response `404`** | No box with that id. |
+| **Headers** | `Authorization: Bearer` |
+| **200** | `{ "files": [ … ] }` |
+| **403** / **404** | Not owner / unknown box |
 
 ---
 
-### `GET /boxes/check/:slug`
+### `GET /me/files/:fileId/download` (authenticated)
 
-Checks whether a **box slug** is still **available** (not already used in the `boxes` table).
+Returns a short-lived **download** signed URL plus KEM metadata for owner-side decrypt in the browser.
 
 | | |
 |---|---|
-| **Path params** | `slug` — URL segment for the future share link (string). |
-| **Response `200`** | `{ "isAvailable": boolean }` — `true` if no box row uses this slug, `false` if taken. |
+| **Headers** | `Authorization: Bearer` |
+| **200** | `{ signedUrl, encrypted_name, nonce, kem_ciphertext, content_type }` |
+| **404** | Not found or not owned |
+| **409** | `not_ready` if status ≠ `ACTIVE` |
 
 ---
 
-### `POST /boxes`
+### `GET /boxes/check/:username/:slug` (public)
 
-Creates a **box** (drop zone) for a given user and returns a **share URL** that includes the owner’s username and slug.
+Whether **`username` + `slug`** is already taken for that user (same pairing as **`/drop/:username/:slug`**).
 
 | | |
 |---|---|
-| **Body** | `slug` (string), `publicKey` (string, recipient ML-KEM / wire format as stored in DB), `userId` (string, UUID of the owning user in `public.users`). |
-| **Response `200`** | `{ "shareURL": string }` — `${FRONTEND_URL}/drop/${username}/${slug}` (URL-encoded segments) where `username` is resolved from `userId`. |
-
-**Side effects:** Inserts into `boxes` via Supabase (`createBox`).
+| **200** | `{ "isAvailable": boolean }` |
 
 ---
 
-### `GET /boxes/:username/:slug`
+### `POST /boxes` (authenticated)
 
-**Public-style** read: returns the **box public key** for uploaders to run the crypto handshake. Resolves `username` → internal user id, then loads the box by `(user_id, slug)`.
+Creates a box for the **token user** (no `userId` in body).
 
 | | |
 |---|---|
-| **Path params** | `username` — owner’s `users.username`; `slug` — box slug. |
-| **Response `200`** | `{ "publicKey": string, "boxId": string, "ownerId": string }` — `boxId` is used for `POST /boxes/:id/uploads`; `ownerId` is used in storage object paths. |
-
-Share links from `POST /boxes` and `GET /me/boxes` use **`/drop/:username/:slug`** on the frontend so recipients open the upload UI. In dev, the Vite proxy sends **`/boxes/...`** to this API (not the SPA).
-
-If the user or box does not exist, the handler returns **`404`** `{ "error": "not_found" }` where applicable.
+| **Headers** | `Authorization: Bearer` |
+| **Body** | `{ "slug": string, "publicKey": string }` |
+| **200** | `{ "shareURL": string }` |
+| **400** | `invalid_slug` / `invalid_public_key` |
+| **409** | `profile_missing` |
 
 ---
 
-### `POST /boxes/:id/uploads`
+### `GET /boxes/:username/:slug` (public)
 
-Registers **file metadata** for an encrypted upload and returns a **signed upload URL** for Supabase Storage (`secure-drop-bucket`).
+Uploader handshake: **public key**, **box id**, **owner id** for storage paths and crypto.
 
 | | |
 |---|---|
-| **Path params** | `id` — **Box id** (`boxes.id`, UUID), not the slug. |
-| **Body** | `encryptedName`, `contentType`, `byteSizeBytes`, `s3Key`, `nonce`, `kemCiphertext` (all strings/number as appropriate; see types in `app.ts`). |
-| **Response `200`** | `{ "uploadURL": string, "fileId": string }` — `PUT` ciphertext bytes to `uploadURL`, then `PATCH /files/:fileId/confirm`. |
-
-**Flow:** Inserts a row in `files` (status lifecycle per DB), then requests a signed upload URL for `s3Key`.
+| **200** | `{ "publicKey", "boxId", "ownerId" }` |
+| **404** | Unknown user or box |
 
 ---
 
-### `PATCH /files/:id/confirm`
+### `POST /boxes/:id/uploads` (public, rate-limited)
 
-Marks a file as successfully uploaded by setting its status to **ACTIVE** (after the client uploaded bytes to Storage).
+Registers a **`files`** row and returns a **signed upload URL** for Storage.
 
 | | |
 |---|---|
-| **Path params** | `id` — **File id** (`files.id`, UUID). |
-| **Body** | None required. |
-| **Response `200`** | `{ "success": true }` |
+| **Path** | `id` = `boxes.id` (UUID) |
+| **Body** | `encryptedName`, `contentType`, `byteSizeBytes`, `s3Key`, `nonce`, `kemCiphertext` |
+| **200** | `{ "uploadURL", "fileId" }` |
+| **404** | Unknown box id |
+| **400** | Invalid fields or **`s3_key`** not allowed for that box |
+| **429** | Rate limited |
 
 ---
 
-## Data layer (summary)
+### `PATCH /files/:id/confirm` (authenticated, owner-only)
 
-Implementation lives in `sb_utils.ts`:
+Sets file status to **`ACTIVE`** only if the caller owns the box containing the file.
 
-- **Postgres tables** (see comments in `sb_utils.ts` and project `design.md`): `users`, `boxes`, `files`.
-- **Storage:** bucket `secure-drop-bucket`; signed uploads via `createSignedUploadUrl`.
+| | |
+|---|---|
+| **Headers** | `Authorization: Bearer` |
+| **200** | `{ "success": true }` |
+| **404** | Not found or not owner |
 
-### Auth → `public.users` (automatic profile)
+---
 
-New **Auth** users (`auth.users`) should get a matching **`public.users`** row (`id` = Auth user id) so dashboard share URLs and `POST /boxes` work. The repo includes a migration that installs a trigger:
+## Data layer
 
-- **File:** `supabase/migrations/20250321180000_sync_public_users_on_auth_user.sql`
-- **Apply:** from the project root, with the [Supabase CLI](https://supabase.com/docs/guides/cli): `supabase db push`, or run the SQL in the Supabase Dashboard **SQL Editor**.
+Logic is in **`sb_utils.ts`** (tables: `users`, `boxes`, `files`; bucket **`secure-drop-bucket`**). Column reference comments are at the bottom of that file.
 
-The trigger sets **`username`** from `raw_user_meta_data.username` (if present on signup) or from the email local-part, then appends `_` and the user id (no hyphens) so the handle stays **unique**. **`public_key`** starts as an empty string; update it when your product flow defines how user keys are stored.
+### Auth → `public.users`
 
-**Accounts created before the migration** still need a one-time backfill, for example:
+New Auth users should get a matching **`public.users`** row (`id` = `auth.users.id`). Migration:
+
+- `supabase/migrations/20250321180000_sync_public_users_on_auth_user.sql`
+
+Apply with Supabase CLI (`supabase db push`) or run the SQL in the Dashboard.
+
+**Accounts created before the migration** may need a one-time backfill, for example:
 
 ```sql
 INSERT INTO public.users (id, username, public_key, created_at, updated_at)
@@ -180,7 +210,11 @@ WHERE NOT EXISTS (SELECT 1 FROM public.users u WHERE u.id = au.id)
 ON CONFLICT (id) DO NOTHING;
 ```
 
-The server Supabase client uses the **service role**. **Dashboard** routes (`/me/...`) validate the user’s access token and enforce **box ownership** before returning data. Other routes remain unauthenticated unless you add middleware later.
+Adjust `username` / `public_key` rules to match your product.
+
+### Database constraint note
+
+The app treats **slug as unique per owner** (`user_id`, `slug`). If your database still has **`UNIQUE (slug)`** globally, align the schema with **`UNIQUE (user_id, slug)`** (and drop the global slug unique if present) so behavior matches the API and slug checks.
 
 ---
 
@@ -188,8 +222,8 @@ The server Supabase client uses the **service role**. **Dashboard** routes (`/me
 
 | Command | Description |
 |---------|-------------|
-| `npm test` | Unit tests (`app.test.ts`) with `sb_utils` mocked — fast, no network. |
-| `npm run test:integration` | Integration tests against a real Supabase project; requires `SUPABASE_SERVICE_ROLE_KEY` (and URL) in `.env`. Slower. |
+| `npm test` | Unit tests (`app.test.ts`), mocked `sb_utils` — no network. |
+| `npm run test:integration` | Real Supabase; requires **`SUPABASE_URL`** + **`SUPABASE_SERVICE_ROLE_KEY`**. Optional **`SUPABASE_ANON_KEY`** for HTTP tests that obtain a user JWT (`getUserAccessToken`). |
 
 ---
 
@@ -197,10 +231,12 @@ The server Supabase client uses the **service role**. **Dashboard** routes (`/me
 
 | File | Role |
 |------|------|
-| `app.ts` | Express routes, CORS, global error handler. |
-| `server.ts` | `listen()` for local / production. |
-| `authMiddleware.ts` | `requireAuth` — Bearer token → `req.userId`. |
-| `sb_utils.ts` | Supabase DB + Storage helpers. |
-| `.endpoints.config.ts` | Env wiring for Supabase URL + service role key. |
-| `express.d.ts` | Augments `Express.Request` with `userId`. |
-| `integration/*` | Helpers and dotenv for integration tests. |
+| `app.ts` | Routes, validation, rate limit wiring, error handler. |
+| `server.ts` | `listen(PORT)`. |
+| `authMiddleware.ts` | `requireAuth` → `req.userId`. |
+| `sb_utils.ts` | Supabase DB + Storage + JWT verification. |
+| `uploadValidation.ts` | Slug, public key, upload body, `s3_key` rules. |
+| `rateLimits.ts` | Upload registration rate limits. |
+| `.endpoints.config.ts` | Env for Supabase URL + service role. |
+| `express.d.ts` | `Request.userId` typing. |
+| `integration/` | DB helpers for integration tests. |

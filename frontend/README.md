@@ -1,75 +1,59 @@
-# React + TypeScript + Vite
+# Frontend (Vite + React)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Browser app for the **post-quantum file sharing** project: dashboard (Supabase Auth + drop links), **ML-KEM** crypto via **WebAssembly**, and upload/download flows against the Express API.
 
-Currently, two official plugins are available:
+## Environment variables
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Copy **`frontend/.env.example`** → **`.env`** (gitignored).
 
-## React Compiler
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `VITE_SUPABASE_URL` | Yes* | Supabase project URL (browser-safe). |
+| `VITE_SUPABASE_ANON_KEY` | Yes* | Supabase **anon** key only — never the service role key. |
+| `VITE_API_URL` | No | Backend origin, e.g. `http://localhost:3001` or `https://your-api.up.railway.app`. **If unset**, the Vite **dev** server proxies `/me`, `/boxes`, `/files` to `http://localhost:3001` (see `vite.config.ts`). **Production builds** (Vercel, etc.) must set this to your real API URL. |
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+\*If missing, the app uses placeholder Supabase config and shows setup hints (see `src/lib/supabase.ts`).
 
-Note: This will impact Vite dev & build performances.
+## Scripts
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev      # Vite dev server (HMR)
+npm run build    # tsc -b && vite build → dist/
+npm run preview  # Serve production build locally
+npm run lint     # ESLint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## WebAssembly (crypto module)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- **Runtime import:** `src/lib/cryptoLocal.ts` loads from **`src/wasm/crypto-module/pkg/crypto_module.js`**, which loads **`crypto_module_bg.wasm`** next to it (via `import.meta.url`).
+- **Generated output is committed** under `src/wasm/crypto-module/pkg/` so **Vercel** and other CI environments can run `npm run build` **without** installing Rust. Do not re-add a `pkg/.gitignore` that ignores the whole folder.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Rebuilding from Rust (local)
+
+Rust crate: **`frontend/public/crypto-module/`** (see `Cargo.toml` there).
+
+```bash
+cd frontend/public/crypto-module
+wasm-pack build --target web --out-dir ../../src/wasm/crypto-module/pkg
 ```
+
+Use the same `wasm-pack` target/out-dir your project expects; if `wasm-pack` recreates **`pkg/.gitignore`** with `*`, remove or adjust it before committing so CI keeps seeing the artifacts.
+
+## API routing
+
+- **Development:** Either set `VITE_API_URL=http://localhost:3001` or leave it unset and rely on the **Vite proxy** for API paths.
+- **Production:** Set **`VITE_API_URL`** in the **build environment** (e.g. Vercel project variables). Values are baked in at build time (`import.meta.env`).
+
+## Routes (React Router)
+
+| Path | Purpose |
+|------|---------|
+| `/` | Dashboard (sign-in, boxes, files, Finalize) |
+| `/drop/:username/:slug` | Public encrypted upload |
+| `/about` | About page |
+
+## Stack notes
+
+- **React 19**, **Vite 8**, **React Compiler** (see Vite / React docs for compiler implications).
+- ESLint config can be extended with type-aware rules (template text in the original Vite scaffold still applies).
