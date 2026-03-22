@@ -11,8 +11,11 @@ Copy **`frontend/.env.example`** → **`.env`** (gitignored).
 | `VITE_SUPABASE_URL` | Yes* | Supabase project URL (browser-safe). |
 | `VITE_SUPABASE_ANON_KEY` | Yes* | Supabase **anon** key only — never the service role key. |
 | `VITE_API_URL` | No | Backend origin, e.g. `http://localhost:3001` or `https://your-api.up.railway.app`. **If unset**, the Vite **dev** server proxies `/me`, `/boxes`, `/files` to `http://localhost:3001` (see `vite.config.ts`). **Production builds** (Vercel, etc.) must set this to your real API URL. |
+| `VITE_SITE_URL` | No | Public origin for **Google OAuth** `redirectTo` (no path), e.g. `https://your-app.vercel.app`. Must match an allowed URL in Supabase. If unset, **`window.location.origin`** is used (typical for dev and same-tab prod). |
 
 \*If missing, the app uses placeholder Supabase config and shows setup hints (see `src/lib/supabase.ts`).
+
+**Sign-in:** Email/password and **Continue with Google** (`signInWithOAuth`). Configure Google in Supabase; see **[`supabase/README.md`](../supabase/README.md)**.
 
 ## Scripts
 

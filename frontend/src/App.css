@@ -110,6 +110,73 @@
   font-size: 0.92rem;
 }
 
+.dash-auth-methods {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.dash-auth-google {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dash-auth-google:hover:not(:disabled) {
+  background: var(--social-bg);
+}
+
+.dash-auth-google:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dash-auth-google:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.dash-auth-google svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.dash-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.88;
+}
+
+.dash-auth-divider::before,
+.dash-auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.dash-auth-divider span {
+  flex-shrink: 0;
+  text-transform: lowercase;
+}
+
 .dash-auth-form {
   display: flex;
   flex-wrap: wrap;

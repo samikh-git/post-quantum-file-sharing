@@ -67,6 +67,6 @@ Deploy **frontend** and **backend** separately (e.g. **Vercel** + **Railway**).
 
 1. **Backend** — set `PORT` from the host, `SUPABASE_*`, `FRONTEND_URL` (public SPA origin), `TRUST_PROXY=1` behind a reverse proxy, and optional upload rate-limit vars (see backend README).
 2. **Frontend** — set **`VITE_API_URL`** to the **public API URL** at **build time** (Vercel project env). Set `VITE_SUPABASE_*` the same way.
-3. **Supabase** — Auth **Site URL** and **Redirect URLs** must include your production SPA origin.
+3. **Supabase** — Auth **Site URL** and **Redirect URLs** must include your production SPA origin. For **Google sign-in**, enable the Google provider and set the Google OAuth redirect URI to Supabase’s callback (see **`supabase/README.md`**).
 
 After deploy, confirm share links use `FRONTEND_URL` and that the upload page can reach the API (CORS + correct `VITE_API_URL`).
