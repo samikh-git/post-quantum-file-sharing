@@ -626,7 +626,8 @@ function App() {
         {!hasSupabase && (
           <p className="dash-warn">
             Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to{' '}
-            <code>.env</code> (see <code>.env.example</code>). Backend: run API on port{' '}
+            <code>.env</code> (see <code>.env.example</code>) — without them, email sign-in and
+            Continue with Google are hidden. Backend: run API on port{' '}
             <code>3001</code> or set <code>VITE_API_URL</code>.
           </p>
         )}
