@@ -148,6 +148,20 @@ export async function updateMyUsername(accessToken: string, username: string): P
   invalidateDashboardApiCache()
 }
 
+export async function deleteMyAccount(accessToken: string): Promise<void> {
+  const res = await apiFetch(url('/me/account'), {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ confirm: 'DELETE' }),
+  })
+  if (!res.ok) throw new Error(await parseError(res))
+  invalidateDashboardApiCache()
+}
+
 export async function fetchMeBoxFiles(
   accessToken: string,
   boxId: string

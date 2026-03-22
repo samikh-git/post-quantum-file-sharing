@@ -61,6 +61,7 @@ Set the Vercel project **Root Directory** to **`frontend`** (or ensure `vercel.j
 | Path | Purpose |
 |------|---------|
 | `/` | Dashboard (sign-in, boxes, files, Finalize) |
+| `/user` | Account: public handle, delete account |
 | `/drop/:username/:slug` | Public encrypted upload |
 | `/about` | About page |
 

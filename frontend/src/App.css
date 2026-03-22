@@ -17,6 +17,13 @@
   gap: 12px 20px;
 }
 
+.dash-header-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 20px;
+}
+
 .dash-about-link {
   flex-shrink: 0;
   font-size: 0.92rem;

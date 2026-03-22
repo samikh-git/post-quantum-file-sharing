@@ -67,6 +67,18 @@
   box-sizing: border-box;
 }
 
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  min-width: 0;
+}
+
+.app-shell__main {
+  flex: 1 0 auto;
+  min-width: 0;
+}
+
 body {
   margin: 0;
 }

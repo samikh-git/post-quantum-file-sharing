@@ -635,6 +635,66 @@ async function listFilesByBoxId(boxId: string): Promise<DashboardFileRow[]> {
     }
 }
 
+const STORAGE_BUCKET = 'secure-drop-bucket';
+const STORAGE_REMOVE_CHUNK = 100;
+
+async function listS3KeysForUser(userId: string): Promise<string[]> {
+    const { data: boxes, error: boxErr } = await supabase
+        .from('boxes')
+        .select('id')
+        .eq('user_id', userId);
+    if (boxErr) {
+        throw boxErr;
+    }
+    const boxIds = (boxes ?? []).map((b) => b.id as string);
+    if (boxIds.length === 0) {
+        return [];
+    }
+    const { data: files, error: fileErr } = await supabase
+        .from('files')
+        .select('s3_key')
+        .in('box_id', boxIds);
+    if (fileErr) {
+        throw fileErr;
+    }
+    const keys = [...new Set((files ?? []).map((f) => f.s3_key as string))];
+    return keys.filter((k) => typeof k === 'string' && k.length > 0);
+}
+
+/**
+ * Deletes ciphertext objects in Storage, `public.users` (cascades boxes + file rows), and `auth.users`.
+ */
+async function deleteAccountForUser(userId: string): Promise<void> {
+    const keys = await listS3KeysForUser(userId);
+    for (let i = 0; i < keys.length; i += STORAGE_REMOVE_CHUNK) {
+        const chunk = keys.slice(i, i + STORAGE_REMOVE_CHUNK);
+        const { error: se } = await supabase.storage.from(STORAGE_BUCKET).remove(chunk);
+        if (se) {
+            throw se;
+        }
+    }
+
+    const { data: profile, error: selErr } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+    if (selErr) {
+        throw selErr;
+    }
+    if (profile) {
+        const { error: delErr } = await supabase.from('users').delete().eq('id', userId);
+        if (delErr) {
+            throw delErr;
+        }
+    }
+
+    const { error: ae } = await supabase.auth.admin.deleteUser(userId);
+    if (ae) {
+        throw ae;
+    }
+}
+
 export {
     getUploadPresignedURL,
     getDownloadSignedUrl,
@@ -655,6 +715,7 @@ export {
     listBoxesForUser,
     getBoxOwnerUserId,
     listFilesByBoxId,
+    deleteAccountForUser,
 };
 
 /*

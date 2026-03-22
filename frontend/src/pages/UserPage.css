@@ -1,0 +1,135 @@
+.user-page .user-section {
+  margin-top: 16px;
+}
+
+.user-page .user-section:first-of-type {
+  margin-top: 0;
+}
+
+.user-h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.user-signed-in {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.user-code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--code-bg);
+}
+
+.user-warn {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.12);
+  color: #b45309;
+}
+
+@media (prefers-color-scheme: dark) {
+  .user-warn {
+    color: #fbbf24;
+    background: rgba(217, 119, 6, 0.18);
+  }
+}
+
+.user-handle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.user-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-h);
+  min-width: 4rem;
+}
+
+.user-input {
+  flex: 1 1 160px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+}
+
+.user-input--confirm {
+  max-width: 12rem;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.user-btn-primary {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-on-accent);
+}
+
+.user-btn-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.user-btn-danger {
+  margin-top: 4px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(185, 28, 28, 0.45);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
+.user-btn-danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.2);
+}
+
+.user-btn-danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  .user-btn-danger {
+    color: #fca5a5;
+    border-color: rgba(248, 113, 113, 0.4);
+    background: rgba(220, 38, 38, 0.18);
+  }
+}
+
+.user-err {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  color: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  .user-err {
+    color: #fca5a5;
+  }
+}
+
+.user-section--danger {
+  border-color: rgba(185, 28, 28, 0.25);
+}

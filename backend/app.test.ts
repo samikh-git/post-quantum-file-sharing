@@ -20,6 +20,7 @@ vi.mock('./sb_utils', () => ({
   listBoxesForUser: vi.fn(),
   getBoxOwnerUserId: vi.fn(),
   listFilesByBoxId: vi.fn(),
+  deleteAccountForUser: vi.fn(),
 }));
 
 import * as sbUtils from './sb_utils';
@@ -104,6 +105,57 @@ describe('PATCH /me/username', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ username: 'new-handle' });
     expect(sbUtils.updateUsernameForUser).toHaveBeenCalledWith('uid-1', 'new-handle');
+  });
+});
+
+describe('DELETE /me/account', () => {
+  beforeEach(() => {
+    vi.mocked(sbUtils.verifyAccessToken).mockReset();
+    vi.mocked(sbUtils.deleteAccountForUser).mockReset();
+  });
+
+  it('returns 401 without Authorization', async () => {
+    const res = await request(app).delete('/me/account').send({ confirm: 'DELETE' });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when confirm is not DELETE', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+
+    const res = await request(app)
+      .delete('/me/account')
+      .set('Authorization', 'Bearer t')
+      .send({ confirm: 'no' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'confirm_required' });
+    expect(sbUtils.deleteAccountForUser).not.toHaveBeenCalled();
+  });
+
+  it('returns 204 and deletes when confirm is DELETE', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+    vi.mocked(sbUtils.deleteAccountForUser).mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .delete('/me/account')
+      .set('Authorization', 'Bearer t')
+      .send({ confirm: 'DELETE' });
+
+    expect(res.status).toBe(204);
+    expect(sbUtils.deleteAccountForUser).toHaveBeenCalledWith('uid-1');
+  });
+
+  it('returns 500 when delete throws', async () => {
+    vi.mocked(sbUtils.verifyAccessToken).mockResolvedValue('uid-1');
+    vi.mocked(sbUtils.deleteAccountForUser).mockRejectedValue(new Error('boom'));
+
+    const res = await request(app)
+      .delete('/me/account')
+      .set('Authorization', 'Bearer t')
+      .send({ confirm: 'DELETE' });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'account_delete_failed' });
   });
 });
 

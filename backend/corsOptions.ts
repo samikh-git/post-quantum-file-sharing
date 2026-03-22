@@ -93,7 +93,7 @@ export const corsOptions: CorsOptions = {
     callback(null, false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
   maxAge: 86_400,
 };

@@ -65,6 +65,27 @@ app.patch(
   })
 );
 
+app.delete(
+  '/me/account',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { confirm } = req.body as { confirm?: unknown };
+    if (confirm !== 'DELETE') {
+      res.status(400).json({ error: 'confirm_required' });
+      return;
+    }
+    const userId = req.userId!;
+    try {
+      await sbUtils.deleteAccountForUser(userId);
+    } catch (e: unknown) {
+      console.error(e);
+      res.status(500).json({ error: 'account_delete_failed' });
+      return;
+    }
+    res.status(204).send();
+  })
+);
+
 app.get(
   '/me/boxes',
   requireAuth,

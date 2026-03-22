@@ -10,6 +10,10 @@ interface ImportMetaEnv {
    * If unset, `window.location.origin` is used after Google sign-in.
    */
   readonly VITE_SITE_URL?: string
+  /** Footer: GitHub profile URL (default https://github.com/sami). */
+  readonly VITE_GITHUB_PROFILE_URL?: string
+  /** Footer: copyright text; use `{year}` for the current year. */
+  readonly VITE_COPYRIGHT_LINE?: string
 }
 
 interface ImportMeta {

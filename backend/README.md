@@ -116,6 +116,20 @@ Sets the signed-in user’s **`public.users.username`** (same validation as box 
 
 ---
 
+### `DELETE /me/account` (authenticated)
+
+Permanently deletes the signed-in user: removes objects in **`secure-drop-bucket`** for their files, deletes **`public.users`** (cascades **boxes** and **file** rows when your schema uses `ON DELETE CASCADE`), then deletes **`auth.users`** via the Admin API (**service role**).
+
+| | |
+|---|---|
+| **Headers** | `Authorization: Bearer` |
+| **Body** | `{ "confirm": "DELETE" }` (literal string required) |
+| **204** | Success, empty body |
+| **400** | `confirm_required` |
+| **500** | `account_delete_failed` |
+
+---
+
 ### `GET /me/boxes` (authenticated)
 
 Lists boxes for the signed-in user and builds share URLs when `username` exists.

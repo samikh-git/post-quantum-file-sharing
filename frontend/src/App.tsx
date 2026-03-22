@@ -10,7 +10,6 @@ import {
   fetchMeBoxFiles,
   fetchMeBoxes,
   invalidateDashboardApiCache,
-  updateMyUsername,
   type DashboardBox,
   type DashboardFile,
 } from './lib/api'
@@ -21,26 +20,7 @@ import {
   ensureLocalMlkemKeyPair,
 } from './lib/cryptoLocal'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
-
-function normalizeSlugDraft(raw: string): string {
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/[_\s]+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-}
-
-function isValidSlug(s: string): boolean {
-  if (s.length < 3 || s.length > 48) return false
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s)
-}
-
-/** Auto-assigned fallback from DB trigger: `…_<uuid-without-hyphens>`. */
-function isAutoAssignedUsername(u: string): boolean {
-  return /_[0-9a-f]{32}$/i.test(u)
-}
+import { isValidSlug, normalizeSlugDraft } from './lib/slugHandle'
 
 type SlugCheckState =
   | 'idle'
@@ -179,9 +159,6 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
   const [signUpUsername, setSignUpUsername] = useState('')
-  const [usernameDraft, setUsernameDraft] = useState('')
-  const [usernameBusy, setUsernameBusy] = useState(false)
-  const [usernameMessage, setUsernameMessage] = useState<string | null>(null)
 
   const [boxes, setBoxes] = useState<DashboardBox[] | null>(null)
   const [dashboardUsername, setDashboardUsername] = useState<string | null | undefined>(
@@ -307,14 +284,6 @@ function App() {
   }, [session?.access_token])
 
   useEffect(() => {
-    if (typeof dashboardUsername === 'string') {
-      setUsernameDraft(dashboardUsername)
-    } else {
-      setUsernameDraft('')
-    }
-  }, [dashboardUsername])
-
-  useEffect(() => {
     const normalized = normalizeSlugDraft(newSlug)
     if (!normalized) {
       setSlugCheck('idle')
@@ -418,45 +387,23 @@ function App() {
 
   async function handleSignUp() {
     if (!hasSupabase) return
+    const handle = normalizeSlugDraft(signUpUsername)
+    if (!isValidSlug(handle)) {
+      setAuthMessage(
+        'Choose a public handle: 3–48 characters, lowercase letters, numbers, and hyphens only.'
+      )
+      return
+    }
     setAuthBusy(true)
     setAuthMessage(null)
-    const { error } = await supabase.auth.signUp({ email, password })
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { username: handle } },
+    })
     setAuthBusy(false)
     if (error) setAuthMessage(error.message)
     else setAuthMessage('Check your email to confirm, or sign in if confirmations are off.')
-  }
-
-  async function handleSaveUsername() {
-    const token = session?.access_token
-    if (!token) return
-    const handle = normalizeSlugDraft(usernameDraft)
-    if (!isValidSlug(handle)) {
-      setUsernameMessage('Use 3–48 characters; only lowercase letters, numbers, hyphens.')
-      return
-    }
-    if (handle === dashboardUsername) return
-    setUsernameBusy(true)
-    setUsernameMessage(null)
-    try {
-      await updateMyUsername(token, handle)
-      const refreshed = await fetchMeBoxes(token)
-      setBoxes(refreshed.boxes)
-      setDashboardUsername(refreshed.username)
-      if (refreshed.username) setUsernameDraft(refreshed.username)
-      setSlugCheck('idle')
-      setCreateSuccess(null)
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (msg === 'username_taken' || msg.includes('username_taken')) {
-        setUsernameMessage('That handle is already taken. Try another.')
-      } else if (msg === 'invalid_username' || msg.includes('invalid_username')) {
-        setUsernameMessage('Invalid handle format.')
-      } else {
-        setUsernameMessage(msg)
-      }
-    } finally {
-      setUsernameBusy(false)
-    }
   }
 
   async function handleGoogleSignIn() {
@@ -478,8 +425,6 @@ function App() {
   async function handleSignOut() {
     invalidateDashboardApiCache()
     setSignUpUsername('')
-    setUsernameDraft('')
-    setUsernameMessage(null)
     await supabase.auth.signOut()
     setBoxes(null)
     setFiles(null)
@@ -661,9 +606,16 @@ function App() {
             <h1 className="dash-title">Drop links</h1>
             <p className="dash-sub">Shareable URLs and upload status</p>
           </div>
-          <Link className="dash-about-link" to="/about">
-            About
-          </Link>
+          <nav className="dash-header-nav" aria-label="Site">
+            {session && (
+              <Link className="dash-about-link" to="/user">
+                Account
+              </Link>
+            )}
+            <Link className="dash-about-link" to="/about">
+              About
+            </Link>
+          </nav>
         </div>
 
         <div className="dash-keys">
@@ -765,57 +717,6 @@ function App() {
               use the repo migration that syncs new signups, apply it (see backend README); otherwise
               insert a row whose <code className="dash-mono">id</code> matches your Auth user id.
             </p>
-          )}
-
-          {session && meDashboardStatus === 'ready' && typeof dashboardUsername === 'string' && (
-            <section className="dash-section">
-              <h2 className="dash-h2">Your handle</h2>
-              <p className="dash-create-desc">
-                This name appears in every share URL:{' '}
-                <code className="dash-mono">/drop/{normalizeSlugDraft(usernameDraft) || '…'}/…</code>
-              </p>
-              {isAutoAssignedUsername(dashboardUsername) && (
-                <p className="dash-hint dash-hint--warn">
-                  You have an auto-generated handle. Set one you prefer below (must stay unique across
-                  the app).
-                </p>
-              )}
-              <div className="dash-create-row dash-handle-row">
-                <label className="dash-create-label" htmlFor="dash-username">
-                  Handle
-                </label>
-                <input
-                  id="dash-username"
-                  className="dash-create-input"
-                  type="text"
-                  value={usernameDraft}
-                  onChange={(e) => {
-                    setUsernameDraft(e.target.value)
-                    setUsernameMessage(null)
-                  }}
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={usernameBusy}
-                />
-                <button
-                  type="button"
-                  className="dash-create-submit"
-                  disabled={
-                    usernameBusy ||
-                    !isValidSlug(normalizeSlugDraft(usernameDraft)) ||
-                    normalizeSlugDraft(usernameDraft) === dashboardUsername
-                  }
-                  onClick={() => void handleSaveUsername()}
-                >
-                  {usernameBusy ? 'Saving…' : 'Save handle'}
-                </button>
-              </div>
-              {usernameMessage && <p className="dash-create-err">{usernameMessage}</p>}
-              <p className="dash-hint">
-                Changing your handle updates new share links; old URLs that used the previous handle
-                will stop working.
-              </p>
-            </section>
           )}
 
           <section className="dash-section">
