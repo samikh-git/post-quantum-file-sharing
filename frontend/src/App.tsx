@@ -236,15 +236,21 @@ function App() {
   }, [hasSupabase])
 
   useEffect(() => {
+    const uid = session?.user?.id
+    if (!uid) {
+      setKeysStatus('idle')
+      setKeysError(null)
+      return
+    }
     setKeysStatus('loading')
     setKeysError(null)
-    void ensureLocalMlkemKeyPair()
+    void ensureLocalMlkemKeyPair(uid)
       .then(() => setKeysStatus('ready'))
       .catch((e: unknown) => {
         setKeysStatus('error')
         setKeysError(e instanceof Error ? e.message : String(e))
       })
-  }, [])
+  }, [session?.user?.id])
 
   useEffect(() => {
     const token = session?.access_token
@@ -351,14 +357,15 @@ function App() {
   }, [session?.access_token, selectedBoxId])
 
   useEffect(() => {
-    if (!files?.length || keysStatus !== 'ready') {
+    const uid = session?.user?.id
+    if (!files?.length || keysStatus !== 'ready' || !uid) {
       setDecryptedFileNames({})
       return
     }
     let cancelled = false
     void (async () => {
       try {
-        const { secretKey } = await ensureLocalMlkemKeyPair()
+        const { secretKey } = await ensureLocalMlkemKeyPair(uid)
         const next: Record<string, string> = {}
         for (const f of files) {
           const name = await decryptEncryptedFilename(secretKey, f.encrypted_name)
@@ -373,7 +380,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [files, keysStatus])
+  }, [files, keysStatus, session?.user?.id])
 
   async function handleSignIn(e: FormEvent) {
     e.preventDefault()
@@ -452,7 +459,7 @@ function App() {
     setCreateError(null)
     setCreateSuccess(null)
     try {
-      const { publicKey } = await ensureLocalMlkemKeyPair()
+      const { publicKey } = await ensureLocalMlkemKeyPair(session.user.id)
       const publicKeyB64 = encodeMlkemPublicKeyBase64(publicKey)
       const { shareURL } = await createBox(session.access_token, {
         slug,
@@ -509,7 +516,7 @@ function App() {
         throw new Error(`Storage fetch failed: ${storageRes.status} ${storageRes.statusText}`)
       }
       const ciphertext = new Uint8Array(await storageRes.arrayBuffer())
-      const { secretKey } = await ensureLocalMlkemKeyPair()
+      const { secretKey } = await ensureLocalMlkemKeyPair(session.user.id)
       const plain = await decryptCiphertextWithLocalSecret(
         secretKey,
         prep.kem_ciphertext,
@@ -585,6 +592,8 @@ function App() {
   else if (dashboardUsername === null)
     createLinkTitle =
       'No public.users row for this account. Apply the Auth sync migration or insert a profile in Supabase.'
+  else if (keysStatus === 'idle')
+    createLinkTitle = 'Loading encryption keys for this account…'
   else if (keysStatus !== 'ready')
     createLinkTitle =
       keysStatus === 'error' ? 'ML-KEM keys failed to load in this browser.' : 'Loading encryption keys…'
@@ -620,9 +629,17 @@ function App() {
 
         <div className="dash-keys">
           <strong>Local keys:</strong>{' '}
+          {keysStatus === 'idle' && !session && (
+            <span className="dash-keys-idle">
+              Sign in — each account gets its own ML-KEM key in IndexedDB on this device.
+            </span>
+          )}
+          {keysStatus === 'idle' && session && 'Preparing ML-KEM (IndexedDB) for this account…'}
           {keysStatus === 'loading' && 'Preparing ML-KEM (IndexedDB)…'}
           {keysStatus === 'ready' && (
-            <span className="dash-keys-ok">ML-KEM-768 key pair stored in IndexedDB</span>
+            <span className="dash-keys-ok">
+              ML-KEM-768 key pair for this account (IndexedDB)
+            </span>
           )}
           {keysStatus === 'error' && (
             <span className="dash-keys-err">Could not load WASM / keys: {keysError}</span>
@@ -762,9 +779,8 @@ function App() {
                 {(meDashboardStatus === 'loading' || boxesLoading) && 'Loading your account…'}
                 {meDashboardStatus === 'error' &&
                   'Could not load your dashboard from the API. Check the red error above, VITE_API_URL, and that the backend is running.'}
-                {keysStatus !== 'ready' && keysStatus !== 'error' && meDashboardStatus === 'ready' && (
-                  <>Loading local keys…</>
-                )}
+                {(keysStatus === 'idle' || keysStatus === 'loading') &&
+                  meDashboardStatus === 'ready' && <>Loading local keys for this account…</>}
                 {keysStatus === 'error' && 'Fix ML-KEM keys before creating a link.'}
                 {keysStatus === 'ready' &&
                   meDashboardStatus === 'ready' &&

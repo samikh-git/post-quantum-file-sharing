@@ -1,4 +1,5 @@
 import { Link } from 'react-router'
+import { MAX_UPLOAD_FILE_LABEL } from '../lib/uploadLimits'
 import './UploadPage.css'
 import './AboutPage.css'
 
@@ -56,9 +57,18 @@ export default function AboutPage() {
       <section className="upload-card about-section about-section--muted">
         <h2 className="about-h2">Limitations</h2>
         <p className="upload-hint about-p">
-          Large files encrypt and decrypt in the browser; very big uploads may feel slow. Use the same
-          browser profile where you created a box to decrypt files — if you lose your local ML-KEM
-          keys, you cannot recover plaintext from ciphertext alone.
+          <ul className="about-list">
+            <li>
+              Drop uploads are limited to <strong>{MAX_UPLOAD_FILE_LABEL}</strong> per file. 
+            </li>
+            <li>
+              Large files encrypt and decrypt in the browser; very big uploads may feel slow. 
+            </li>
+            <li>
+              Use the same browser profile where you created a box to decrypt files. If you lose your local ML-KEM keys, you
+              cannot recover plaintext from ciphertext alone.
+            </li>
+          </ul>
         </p>
       </section>
     </div>

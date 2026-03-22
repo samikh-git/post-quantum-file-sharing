@@ -25,6 +25,7 @@ vi.mock('./sb_utils', () => ({
 
 import * as sbUtils from './sb_utils';
 import app from './app';
+import { MAX_CIPHERTEXT_BYTES } from './uploadValidation';
 
 describe('PATCH /me/username', () => {
   beforeEach(() => {
@@ -593,6 +594,25 @@ describe('POST /boxes/:id/uploads', () => {
 
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: 'invalid_s3_key' });
+    expect(sbUtils.addFile).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when byteSizeBytes exceeds ciphertext limit', async () => {
+    vi.mocked(sbUtils.getBoxOwnerIdAndSlug).mockResolvedValue({ ownerId, slug });
+
+    const res = await request(app)
+      .post('/boxes/box-uuid-9/uploads')
+      .send({
+        encryptedName: 'enc-name',
+        contentType: 'application/octet-stream',
+        byteSizeBytes: MAX_CIPHERTEXT_BYTES + 1,
+        s3Key: validS3Key,
+        nonce: 'n',
+        kemCiphertext: 'kem',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'invalid_byte_size' });
     expect(sbUtils.addFile).not.toHaveBeenCalled();
   });
 });

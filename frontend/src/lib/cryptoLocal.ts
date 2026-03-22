@@ -15,27 +15,51 @@ export async function ensureWasmLoaded(): Promise<void> {
   await wasmInit
 }
 
-/** One logical key slot per browser profile (extend with user id if you multi-tenant keys). */
-export const DEFAULT_MLKEM_KEY_ID = 'mlkem-768-v1'
+/**
+ * Legacy IndexedDB id (one key per browser). Superseded by per-user ids; still read once to migrate.
+ */
+export const LEGACY_MLKEM_KEY_ID = 'mlkem-768-v1'
+
+/** IndexedDB key id for the signed-in user (isolates keys when several accounts use the same browser). */
+export function mlkemKeyStoreIdForUser(userId: string): string {
+  const id = userId.trim()
+  if (!id) {
+    throw new Error('ML-KEM keys require a signed-in user')
+  }
+  return `${LEGACY_MLKEM_KEY_ID}:${id}`
+}
 
 /**
- * Load ML-KEM key pair from IndexedDB, or generate, persist, and return.
- * Secret key never leaves IndexedDB except in memory for crypto operations.
+ * Load ML-KEM key pair for this auth user from IndexedDB, or generate, persist, and return.
+ * If a legacy single-slot key exists (pre–per-user storage), it is copied to this user’s slot once
+ * and removed from the legacy id so the next account on this browser gets its own key.
  */
-export async function ensureLocalMlkemKeyPair(): Promise<{
+export async function ensureLocalMlkemKeyPair(userId: string): Promise<{
   publicKey: Uint8Array
   secretKey: Uint8Array
 }> {
   await ensureWasmLoaded()
-  const existing = await keyStore.getKeyPair(DEFAULT_MLKEM_KEY_ID)
-  if (existing) return existing
+  const storeId = mlkemKeyStoreIdForUser(userId)
+
+  let existing = await keyStore.getKeyPair(storeId)
+  if (!existing) {
+    const legacy = await keyStore.getKeyPair(LEGACY_MLKEM_KEY_ID)
+    if (legacy) {
+      await keyStore.saveKeyPair(storeId, legacy.publicKey, legacy.secretKey)
+      await keyStore.deleteKeyPair(LEGACY_MLKEM_KEY_ID)
+      existing = legacy
+    }
+  }
+  if (existing) {
+    return existing
+  }
 
   const kp = generateKeyPair()
   const publicKey = new Uint8Array(kp.public_key)
   const secretKey = new Uint8Array(kp.secret_key)
   kp.free()
 
-  await keyStore.saveKeyPair(DEFAULT_MLKEM_KEY_ID, publicKey, secretKey)
+  await keyStore.saveKeyPair(storeId, publicKey, secretKey)
   return { publicKey, secretKey }
 }
 

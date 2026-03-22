@@ -71,6 +71,11 @@
   color: var(--text);
 }
 
+.dash-keys-idle {
+  color: var(--text);
+  opacity: 0.9;
+}
+
 .dash-keys-ok {
   color: #15803d;
 }

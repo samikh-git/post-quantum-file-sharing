@@ -211,7 +211,7 @@ Registers a **`files`** row and returns a **signed upload URL** for Storage.
 | **Body** | `encryptedName`, `contentType`, `byteSizeBytes`, `s3Key`, `nonce`, `kemCiphertext` |
 | **200** | `{ "uploadURL", "fileId" }` |
 | **404** | Unknown box id |
-| **400** | Invalid fields or **`s3_key`** not allowed for that box |
+| **400** | Invalid fields, **`byteSizeBytes`** over the ~50 MiB ciphertext cap (see `uploadValidation.ts`), or **`s3_key`** not allowed for that box |
 | **429** | Rate limited |
 
 ---

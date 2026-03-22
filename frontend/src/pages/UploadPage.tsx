@@ -11,6 +11,11 @@ import {
   encryptPlaintextForRecipient,
   ensureWasmLoaded,
 } from '../lib/cryptoLocal'
+import {
+  MAX_REGISTERED_CIPHERTEXT_BYTES,
+  MAX_UPLOAD_FILE_BYTES,
+  MAX_UPLOAD_FILE_LABEL,
+} from '../lib/uploadLimits'
 import './UploadPage.css'
 
 type Step =
@@ -80,6 +85,13 @@ export default function UploadPage() {
       setLastError(null)
       setMessage(null)
 
+      if (file.size > MAX_UPLOAD_FILE_BYTES) {
+        setLastError(
+          `Maximum file size is ${MAX_UPLOAD_FILE_LABEL} (this file is ${(file.size / (1024 * 1024)).toFixed(1)} MB).`
+        )
+        return
+      }
+
       try {
         setStep('encrypting')
         const namePlain = new TextEncoder().encode(file.name)
@@ -98,10 +110,17 @@ export default function UploadPage() {
         const objectLeaf = `${crypto.randomUUID()}_${safeStorageLeaf(file.name)}`
         const s3Key = `${box.ownerId}/${slug}/${objectLeaf}`
 
+        const ciphertextLen = bodyEnc.encrypted.byteLength
+        if (ciphertextLen > MAX_REGISTERED_CIPHERTEXT_BYTES) {
+          throw new Error(
+            `Encrypted payload exceeds the ${MAX_UPLOAD_FILE_LABEL} upload limit after encryption.`
+          )
+        }
+
         const { uploadURL } = await registerFileUpload(box.boxId, {
           encryptedName,
           contentType: file.type || 'application/octet-stream',
-          byteSizeBytes: bodyEnc.encrypted.byteLength,
+          byteSizeBytes: ciphertextLen,
           s3Key,
           nonce: bytesToBase64(bodyEnc.nonce),
           kemCiphertext: bytesToBase64(bodyEnc.kemCiphertext),
@@ -174,7 +193,8 @@ export default function UploadPage() {
         <section className="upload-card">
           <p className="upload-hint">
             Files are encrypted in your browser with the box owner&apos;s public key before upload.
-            The server only stores ciphertext.
+            The server only stores ciphertext. Maximum file size is <strong>{MAX_UPLOAD_FILE_LABEL}</strong>{' '}
+            per upload.
           </p>
 
           <label className="upload-file-label">

@@ -30,6 +30,7 @@ npm run lint     # ESLint
 ## WebAssembly (crypto module)
 
 - **Runtime import:** `src/lib/cryptoLocal.ts` loads from **`src/wasm/crypto-module/pkg/crypto_module.js`**, which loads **`crypto_module_bg.wasm`** next to it (via `import.meta.url`).
+- **Per-account keys:** ML-KEM material is stored in **IndexedDB** under an id derived from the signed-in Supabase **user id**, so two accounts in the same browser profile do not share a key. A legacy single-slot key (older builds) is migrated into the current user’s slot on first sign-in after upgrade.
 - **Generated output is committed** under `src/wasm/crypto-module/pkg/` so **Vercel** and other CI environments can run `npm run build` **without** installing Rust. Do not re-add a `pkg/.gitignore` that ignores the whole folder.
 
 ### Rebuilding from Rust (local)

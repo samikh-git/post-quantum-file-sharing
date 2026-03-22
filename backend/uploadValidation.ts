@@ -3,8 +3,15 @@
  */
 
 export const MAX_BOX_PUBLIC_KEY_LENGTH = 12_000;
-/** Ciphertext size registered before upload (Supabase / cost guardrail). */
-export const MAX_CIPHERTEXT_BYTES = 512 * 1024 * 1024;
+
+/** Max plaintext file size for one drop upload (50 MiB). UI and client checks should match. */
+export const MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Max `byteSizeBytes` for the file body ciphertext registered at upload (AES-GCM payload).
+ * Slightly above plaintext cap to allow auth tag / padding beyond raw file length.
+ */
+export const MAX_CIPHERTEXT_BYTES = MAX_UPLOAD_FILE_BYTES + 64 * 1024;
 export const MAX_ENCRYPTED_NAME_CHARS = 8192;
 export const MAX_KEM_FIELD_LENGTH = 8192;
 export const MAX_CONTENT_TYPE_LENGTH = 128;
