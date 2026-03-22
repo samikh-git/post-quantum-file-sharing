@@ -23,7 +23,7 @@ function copyrightLine(): string {
   const fromEnv = (import.meta.env.VITE_COPYRIGHT_LINE as string | undefined)?.trim()
   const year = new Date().getFullYear()
   if (fromEnv) return fromEnv.replace(/\{year\}/g, String(year))
-  return `© ${year}`
+  return `© {${year}} Sami Houssaini`
 }
 
 export default function AppFooter() {
