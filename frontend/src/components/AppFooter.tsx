@@ -16,7 +16,7 @@ function IconGitHub(props: { className?: string }) {
 function githubProfileUrl(): string {
   const fromEnv = (import.meta.env.VITE_GITHUB_PROFILE_URL as string | undefined)?.trim()
   if (fromEnv) return fromEnv.replace(/\/$/, '')
-  return 'https://github.com/sami'
+  return 'https://github.com/samikh-git'
 }
 
 function copyrightLine(): string {
